@@ -102,6 +102,25 @@ Swap:             0           0           0
 - `com.webos.service.camera` shows `failed` rather than `inactive` — stopped cleanly, systemd just
   records the exit state.
 
+## Post-Luma install (2026-10-27)
+
+Cold reboot with all three hooks active + Luma installed via HBC (proper appInstallService path).
+
+```
+              total        used        free      shared  buff/cache   available
+Mem:           1071         533         151          41         386         454
+Swap:           900         118         782
+```
+
+- **Used:** 533 MB — 220 MB better than 753 MB baseline
+- **Available:** 454 MB — up from 292 MB baseline (+162 MB)
+- **Swap:** 118 MB — down from 146 MB baseline (−28 MB)
+- All 7 bloat services confirmed inactive; 7 runtime masks in place
+- Luma installed via HBC (proper LS2 registration)
+- Home takeover not yet enabled
+
+---
+
 ## Post-debloat: all three hooks (2026-10-26)
 
 Cold reboot with `30-debloat` + `40-hosts` + `50-preload` all active.
@@ -132,3 +151,31 @@ Notes:
 - The practical win on the home screen: ad/recommendation rows fail
   instantly instead of timing out, and fewer preloaded apps competing for RAM
   means less swapping when the home screen itself needs pages.
+
+## Post-Luma home takeover (2026-10-27)
+
+Luma home integration enabled (webOS 6 bind-mount method).
+
+### Hooks added this session
+
+| Hook | Purpose |
+| :--- | :------ |
+| `30-debloat` | +`crashd.service`, `update.service` (9 services total now stopped) |
+| `65-luma-home-restart` | Kills the stale LG home binary 8s after boot so the next Home press launches Luma |
+
+### Boot sequence issue
+
+`homeAutoLaunch` in category `general` is overridden back to `"off"` on every boot by LG's SDX server
+(`sdp_secure` Luna service). Setting it manually via `setSystemSettings` reverts after reboot.
+Consequence: projector boots to the last-active input (HDMI, no signal) instead of home.
+
+### Luma multiple-Home-press fix
+
+**Root cause:** `64-luma-home` (`home.sh boot`) forks a background `sleep 5; apply` job at HBC init.d
+time. webOS SAM launches `com.webos.app.home` during those 5 seconds using the original LG binary.
+After `apply`, the bind-mount is in place but the old LG process is still alive — hence pressing Home
+shows "LG launcher" and only later presses kill/restart the process and hit the Luma binary.
+
+**Fix:** `65-luma-home-restart` forks `sleep 8; pkill com.webos.app.home`. The LG process is gone
+before any reasonable user would press Home. Next Home press launches a fresh `com.webos.app.home`
+using Luma's binary (already mounted).

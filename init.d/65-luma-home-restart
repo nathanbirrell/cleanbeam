@@ -1,0 +1,15 @@
+#!/bin/sh
+# After Luma's bind-mount applies (~5s into boot via home.sh boot), the already-running
+# com.webos.app.home process is still the original LG binary. Kill it so the next Home
+# press launches the Luma binary underneath the mount.
+(
+  sleep 8
+  pid=$(pgrep -f "usr/bin/com.webos.app.home" 2>/dev/null | head -1)
+  if [ -n "$pid" ]; then
+    kill "$pid" 2>/dev/null
+    echo "65-luma-home-restart: killed com.webos.app.home pid $pid"
+  else
+    echo "65-luma-home-restart: com.webos.app.home not running, nothing to kill"
+  fi
+) >> /var/lib/luma-home/boot.log 2>&1 &
+exit 0
