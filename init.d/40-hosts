@@ -1,0 +1,53 @@
+#!/bin/sh
+# Bind-mount a replacement /etc/hosts that blocks LG ad/telemetry domains.
+# Includes HBC's update-blocking entries since this mount overlays HBC's own.
+# All domains resolve to 127.0.0.1 — requests fail fast instead of timing out.
+
+HOSTS_TMP=/tmp/cleanbeam_hosts
+
+cat > "$HOSTS_TMP" << 'HOSTS'
+127.0.0.1	localhost.localdomain		localhost
+
+# IPv6 localhost
+::1     localhost ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+
+# LG firmware update servers (HBC block — preserved here since we overlay HBC's mount)
+127.0.0.1 snu.lge.com su-dev.lge.com su.lge.com su-ssl.lge.com
+::1       snu.lge.com su-dev.lge.com su.lge.com su-ssl.lge.com
+
+# LG ad network
+127.0.0.1 lgsmartad.com ad.lgsmartad.com smartad.lge.com
+127.0.0.1 ibis.lgappstv.com ibs.lgappstv.com ibsstat.lgappstv.com
+127.0.0.1 info.lgsmartad.com
+127.0.0.1 au.info.lgsmartad.com gb.info.lgsmartad.com us.info.lgsmartad.com eu.info.lgsmartad.com
+
+# LG telemetry / diagnostics
+127.0.0.1 rdx.lgtvcommon.com aic.lgtvcommon.com
+127.0.0.1 rdx2.lgtvsdp.com
+127.0.0.1 cdpbeacon.lgtvcommon.com cdpsvc.lgtvcommon.com wau.lgtvcommon.com
+127.0.0.1 aic.cdpbeacon.lgtvcommon.com eic.cdpbeacon.lgtvcommon.com
+127.0.0.1 au.cdpbeacon.lgtvcommon.com gb.cdpbeacon.lgtvcommon.com us.cdpbeacon.lgtvcommon.com
+127.0.0.1 ngfts.lge.com aic-ngfts.lge.com
+127.0.0.1 cdplauncher.lgtvcommon.com lgchhomeapp.lgtvcommon.com
+
+# LG SDP / content store ad rows (not the store itself — lgtvsdp.com is kept)
+127.0.0.1 nextlgsdp.com us.nextlgsdp.com gb.nextlgsdp.com eu.nextlgsdp.com
+
+# Alphonso ACR (screen content recognition)
+127.0.0.1 alphonso.tv prov-lg.alphonso.tv prov.alphonso.tv
+127.0.0.1 eulacheck.alphonso.tv bl-server.alphonso.tv clockskew.alphonso.tv
+127.0.0.1 acrdb.alphonso.tv ads.alphonso.tv api.alphonso.tv
+127.0.0.1 tvads.alphonso.tv sync.alphonso.tv tr.alphonso.tv tn.alphonso.tv
+127.0.0.1 insights.alphonso.tv bwlkup.alphonso.tv eu-acr86.alphonso.tv
+
+# Third-party ad/analytics
+127.0.0.1 smartclip.com smartclip-services.com yumenetworks.com
+127.0.0.1 ueiwsp.com lgtviot.com
+HOSTS
+
+chmod 444 "$HOSTS_TMP"
+mount --bind "$HOSTS_TMP" /etc/hosts && echo "40-hosts: hosts file mounted" || echo "40-hosts: mount failed"

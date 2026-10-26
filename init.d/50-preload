@@ -1,0 +1,47 @@
+#!/bin/sh
+# Disable preloading for streaming apps and non-essential services.
+# Uses setPreloadPolicy (runtime) so the change takes effect now but is
+# re-applied by this script on next boot — no permanent configd change.
+#
+# Essential apps kept preloaded: home, hdmi*, quicksettings, miracast.
+# Disabled: Netflix, YouTube, Amazon, browser, voice/assistant, promo apps.
+
+LUNA="luna-send -w 3000 -n 1"
+SVC="luna://com.webos.service.preloadmanager/setPreloadPolicy"
+
+disable_preload() {
+  $LUNA "$SVC" "{\"id\":\"$1\",\"preloadMode\":\"none\"}" >/dev/null 2>&1 \
+    && echo "50-preload: disabled $1" \
+    || echo "50-preload: skipped $1 (not found or error)"
+}
+
+# Streaming apps — no reason to keep these resident at startup
+disable_preload "netflix-pjtr"
+disable_preload "youtube.leanback.v4-pjtr"
+disable_preload "amazon-pjtr"
+disable_preload "vudu"
+disable_preload "pooq"
+disable_preload "airplay"
+
+# Browser
+disable_preload "com.webos.app.browser"
+
+# Voice / AI assistant (service already stopped by 30-debloat)
+disable_preload "com.webos.app.voice"
+disable_preload "google.assistant"
+
+# Promo / nudge apps
+disable_preload "com.webos.app.nudge"
+disable_preload "com.webos.app.woweffect"
+disable_preload "com.webos.app.masterbrand"
+disable_preload "com.webos.app.store-streamer"
+disable_preload "com.webos.app.favshows"
+disable_preload "com.webos.app.homegymnudge"
+disable_preload "com.webos.app.sportsalarm"
+disable_preload "com.webos.app.toss"
+
+# Live TV apps (not applicable on a projector)
+disable_preload "com.webos.app.livetv"
+disable_preload "com.webos.app.livemenu"
+
+echo "50-preload: done"
