@@ -53,3 +53,24 @@ Full service list: 88 services running at idle.
 
 See `PLAN.md` order of work step 6. Plan is to stop services one at a time via
 `init.d/` hooks, measure memory after each, and keep what helps.
+
+## Post-debloat: immediate stop (2026-10-26)
+
+Hook `/var/lib/webosbrew/init.d/30-debloat.sh` deployed and run manually.
+Services stopped: contentminer, nudge, rdxd, remotelogger, com.webos.service.camera, voiceconductor, voiceinput.
+All runtime-masked under `/run/systemd/transient/`.
+
+```
+              total        used        free      shared  buff/cache   available
+Mem:        1096864      766632       25028       10168      305204      276376
+Swap:        921592      222044      699548
+```
+
+**Immediate result:** Negligible RAM change after live stop — services were already mostly swapped out.
+Swap used went UP by ~75 MB (222 MB vs 147 MB baseline), likely because the kernel reallocated freed
+physical pages for cache and other processes paged in. **Not a reliable measurement.**
+
+The meaningful number comes from a cold reboot. With the hook in place, these 7 services will never
+start, so their startup RAM cost is avoided from the first moment.
+
+**Next: reboot and re-measure.** Expected 50–100 MB RAM improvement at idle.
