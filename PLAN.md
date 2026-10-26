@@ -1,0 +1,60 @@
+# Plan
+
+## What the two main projects actually do for speed and debloat
+
+Both need root. Neither mentions projectors, and Glasshouse's 53 tested devices are all TVs, so the
+HU710PB would be a first.
+
+### Homebrew Channel (`reference/webos-homebrew-channel/services/startup.sh`)
+
+Runs once per boot from `/var/lib/webosbrew/startup.sh`. The parts relevant to us:
+
+| Lever | How | Effect |
+| :---- | :-- | :----- |
+| Telemetry spools | Read-only bind mounts over `/tmp/rdxd`, `/tmp/uploadd`, `/var/spool/rdxd`, `/var/spool/uploadd/{pending,uploaded}` | Crash/usage uploads have nowhere to write |
+| Update blocking | Flag file `/var/luna/preferences/webosbrew_block_updates` makes it bind-mount an `/etc/hosts` pointing `snu/su/su-ssl/su-dev.lge.com` at localhost | Keeps root from being patched away |
+| User hooks | Every executable in `/var/lib/webosbrew/init.d` runs at boot via `run-parts` | Where our own debloat script would live |
+| Failsafe | Flag `/var/luna/preferences/webosbrew_failsafe`; if a boot crashes mid-hook, the next boot only opens a telnet shell | Safety net for experiments |
+
+Nothing touches the read-only rootfs; everything is bind mounts under `/tmp` and undone by a reboot.
+
+### Glasshouse (`reference/glasshouse/server/lib/`, `docs/TV-CHANGES.md`)
+
+A Node server on the TV. The speed and debloat pieces are separable from the dashboard:
+
+| Lever | Source | How |
+| :---- | :----- | :-- |
+| Background services | `services.js` | `systemctl stop` and mask under `/run` for `uploadd`, `rdxd`, `contentminer` (ACR), `nudge` (promo popups), `remotelogger`, `com.webos.service.camera`, `com.webos.service.mycar`, `voiceconductor`; boot hook `init.d/20-tvweb-services`, re-checked every 5 min |
+| App preloading | `preload.js` | Sets `isEnabled:false` per app in configd `com.webos.service.preloadmanager.supportAppList`, so LG stops keeping Netflix, YouTube etc. resident in RAM |
+| Ad/telemetry hosts | `privacy.js` | Replacement `/etc/hosts` bind mount blocking `*.lgtvsdp.com`, `*.lgsmartad.com`, `*.lgappstv.com` stats, `ngfts.lge.com`, and the Alphonso ACR hosts |
+| Uninstall apps | `apps.js` | Permanent removal through LG's install service to free flash |
+| Hide system tiles | `homescreen*.js` | Bind-mounted `appinfo.json` edits (experimental) |
+| Replace LG Home | `home-takeover.js` | Bind-mounts its own app over `com.webos.app.home` |
+| Remote keys | `remotekeys.js` | Surface-manager key filter to remap or disable shortcut buttons |
+
+## Without root
+
+vibehack confirms there's no package disabling without root. What's left is the settings debloat
+from the handover doc, a Developer Mode launcher, and LG's network control API (SSAP over websocket,
+port 3000/3001, the API vibehack and Home Assistant use), which can script settings and close apps
+from a computer.
+
+## Order of work
+
+1. **Identify the device.** Record the full model label, webOS TV version and OTAID; check
+   CanI.RootMy.TV and ask on the OpenLGTV Discord if it isn't listed. Turn off auto-updates now.
+2. **Baseline.** Measure cold boot to usable Home, Home-to-app launch time, and free RAM (the last needs
+   root or Developer Mode) so we can tell whether changes help.
+3. **If rootable:** root, install Homebrew Channel, enable SSH with a key, turn on update blocking.
+   Then write `init.d/` hooks taking the levers above one at a time, measuring after each, before
+   deciding whether to run all of Glasshouse or only our own small hook.
+4. **If not rootable:** apply the settings debloat, try the Developer Mode launcher, and write an SSAP
+   script for anything settings can't reach.
+
+## Open questions
+
+- Which SoC is in the HU710PB? Root exploit applicability and service names depend on it.
+- Does a projector build of webOS 6 carry the same services (`contentminer`, `nudge`, preloadmanager)?
+  Check with `systemctl list-units` once we have a shell.
+- Is the slowness mainly RAM pressure from preloaded apps, or Home's ad/recommendation rows loading
+  over the network? The baseline in step 2 should tell.
