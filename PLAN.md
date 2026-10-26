@@ -41,15 +41,19 @@ from a computer.
 
 ## Order of work
 
-1. **Identify the device.** Record the full model label, webOS TV version and OTAID; check
-   CanI.RootMy.TV and ask on the OpenLGTV Discord if it isn't listed. Turn off auto-updates now.
-2. **Baseline.** Measure cold boot to usable Home, Home-to-app launch time, and free RAM (the last needs
-   root or Developer Mode) so we can tell whether changes help.
-3. **If rootable:** root, install Homebrew Channel, enable SSH with a key, turn on update blocking.
-   Then write `init.d/` hooks taking the levers above one at a time, measuring after each, before
-   deciding whether to run all of Glasshouse or only our own small hook.
-4. **If not rootable:** apply the settings debloat, try the Developer Mode launcher, and write an SSAP
-   script for anything settings can't reach.
+1. **Identify the device.** ✅ Model HU710PB-GL, firmware 03.00.27, SoC k7lp, webOS 6.3.1.
+2. **Turn off auto-updates.** Do this now and keep it off throughout.
+3. **Confirm voiceweb.** Set up Developer Mode and verify `com.webos.app.voiceweb` is present
+   (see SlopBro section above). If present, the root path is likely viable.
+4. **Root with SlopBro.** Clone [IHIXly/lg-cinebeam-hu710pw-ROOT](https://github.com/IHIXly/lg-cinebeam-hu710pw-ROOT),
+   run against the projector's IP. Accept the pairing prompt. If it succeeds, Homebrew Channel
+   appears on the home screen.
+5. **Post-root baseline.** SSH in (default password `alpine`), measure free RAM, list running
+   services with `systemctl list-units --state=running`, confirm which Glasshouse service IDs
+   exist on a projector build.
+6. **Debloat.** Write `init.d/` hooks one at a time: stop telemetry services, block ad hosts,
+   disable preloaded apps. Measure after each change.
+7. **If root fails:** fall back to settings debloat + Developer Mode launcher + SSAP scripting.
 
 ## Root check so far (2026-10-26)
 
@@ -59,6 +63,37 @@ from a computer.
   but without the projector's OTAID we can't say which entry, if any, applies.
 - Next: read the webOS TV version and OTAID from Settings → General → About. If the OTAID isn't
   in the checker, ask on the OpenLGTV Discord with model, product code, software version and OTAID.
+
+## SlopBro CineBeam adaptation (2026-10-26)
+
+[IHIXly/lg-cinebeam-hu710pw-ROOT](https://github.com/IHIXly/lg-cinebeam-hu710pw-ROOT)
+(published 2026-09-23) is SlopBro adapted for the **HU710PW** — the white variant of the same
+projector range. Confirmed working:
+
+| Field | Value |
+| :---- | :---- |
+| Device | HU710PW |
+| webOS | 6.3.1 |
+| Firmware | 03.01.13 |
+| SoC | k7lp / Realtek |
+| Result | Root + Homebrew Channel |
+
+**The key CineBeam change:** on TVs SlopBro uses `com.webos.app.adoverlayex` and similar apps as
+exploit entry points. Those aren't present on projectors. The adaptation uses
+`com.webos.app.voiceweb` instead (webOS major version 6 or 11).
+
+**Relevance to our HU710PB-GL:**
+- Same SoC (k7lp), same webOS version (6.3.1), same firmware generation (03.00.27 vs 03.01.13 —
+  ours is actually older/lower, which is usually better for exploit availability).
+- `com.webos.app.voiceweb` must be present on the PB as well — it was confirmed present on the PB
+  via the Developer Mode report.
+- The PW vs PB distinction appears to be a colour/market variant; the underlying platform is
+  the same.
+
+**Next step to confirm:** check that `com.webos.app.voiceweb` is present on our device. From a
+Developer Mode shell: `luna-send -a test -f -n 1 'luna://com.webos.applicationManager/getAppInfo' '{"id":"com.webos.app.voiceweb"}'`
+
+If that returns an app entry (not an error), the exploit path is very likely to work.
 
 ## Community reports (2026-10-26)
 
