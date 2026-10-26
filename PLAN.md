@@ -90,10 +90,13 @@ exploit entry points. Those aren't present on projectors. The adaptation uses
 - The PW vs PB distinction appears to be a colour/market variant; the underlying platform is
   the same.
 
-**Next step to confirm:** check that `com.webos.app.voiceweb` is present on our device. From a
-Developer Mode shell: `luna-send -a test -f -n 1 'luna://com.webos.applicationManager/getAppInfo' '{"id":"com.webos.app.voiceweb"}'`
+**Confirmed on our HU710PB-GL (2026-10-26):** SSAP `listApps` returned 109 apps.
+Both exploit entry points from the HU710PW adaptation are present:
+- ✅ `com.webos.app.voiceweb` — primary entry point used by the HU710PW fork
+- ✅ `com.webos.app.acroverlay` (LivePlus) — fallback entry point
+- ✅ `com.palmdts.devmode` — Developer Mode already installed
 
-If that returns an app entry (not an error), the exploit path is very likely to work.
+The exploit path is confirmed viable. See `scripts/probe-ssap.py` for the app listing tool.
 
 ## Community reports (2026-10-26)
 
