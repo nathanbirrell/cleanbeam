@@ -60,9 +60,22 @@ from a computer.
 - Next: read the webOS TV version and OTAID from Settings → General → About. If the OTAID isn't
   in the checker, ask on the OpenLGTV Discord with model, product code, software version and OTAID.
 
+## Community reports (2026-10-26)
+
+- **Developer Mode confirmed.** [webosbrew/youtube-webos#457](https://github.com/webosbrew/youtube-webos/issues/457#issuecomment-4908203765)
+  (2026-07-07): an HU710PB-GL on webOS 6.3.1, firmware 03.00.27, SoC k7lp, running Developer
+  Mode only, not rooted. The Cobalt build of youtube-webos installed with `luna-send-pub` (Dev
+  Manager's drag-and-drop hung) and blocked YouTube ads; SponsorBlock didn't work.
+- **Root not confirmed.** On the OpenLGTV Discord (2026-09-14) someone asked whether DangBro or
+  SlopBro work on the HU710PB. The only reply was general: webOS 5 and earlier can basically always be
+  rooted, and newer devices are fine if you don't update. Nobody reported rooting this model, and ours
+  is webOS 6.
+- Takeaway: Developer Mode is a known-good path today. Root stays unproven; asking for an
+  HU710PB / k7lp / 03.00.27 data point is the next step before trying any exploit.
+
 ## Open questions
 
-- Which SoC is in the HU710PB? Root exploit applicability and service names depend on it.
+- Which SoC is in the HU710PB? Reported as k7lp; confirm on ours from the Instart menu or a shell.
 - Does a projector build of webOS 6 carry the same services (`contentminer`, `nudge`, preloadmanager)?
   Check with `systemctl list-units` once we have a shell.
 - Is the slowness mainly RAM pressure from preloaded apps, or Home's ad/recommendation rows loading

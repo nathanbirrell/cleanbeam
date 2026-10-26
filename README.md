@@ -22,8 +22,10 @@ the handover doc: https://claude.ai/artifact/RefEZU6ME65pR8Xz2yB9vT
 | Manufactured | 2024 |
 | Software version | 3.00.27 |
 | webOS | 6.0 |
-| webOS TV version | not yet recorded |
-| OTAID | not yet recorded |
+| webOS TV version | likely 6.3.1 (reported for another HU710PB-GL on 03.00.27; confirm on ours) |
+| SoC | k7lp (same report) |
+| OTAID | not shown in About; not needed so far |
+| Developer Mode | works on this model and firmware (same report) |
 
 ## Status
 
