@@ -11,6 +11,12 @@ SERVICES="
   com.webos.service.camera.service
   voiceconductor.service
   voiceinput.service
+  crashd.service
+  update.service
+  tvdataexchanger.service
+  com.webos.app.multiview.service
+  db8-epgdb.service
+  iepg-ping-fepg.service
 "
 
 if ! which systemctl >/dev/null 2>&1; then
