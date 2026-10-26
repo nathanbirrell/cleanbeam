@@ -74,3 +74,30 @@ The meaningful number comes from a cold reboot. With the hook in place, these 7 
 start, so their startup RAM cost is avoided from the first moment.
 
 **Next: reboot and re-measure.** Expected 50–100 MB RAM improvement at idle.
+
+## Post-debloat: cold reboot with corrected hook (2026-10-26)
+
+**Bug fixed:** `30-debloat.sh` → `30-debloat` (no extension).
+Busybox `run-parts` silently skips any filename containing a dot — Glasshouse's `20-tvweb-services`
+uses no extension for exactly this reason.
+
+```
+              total        used        free      shared  buff/cache   available
+Mem:        1096864      710260       18440       39808      368164      304856
+Swap:             0           0           0
+```
+
+### Results vs baseline
+
+| Metric | Baseline | After debloat | Delta |
+| :----- | :------- | :------------ | :---- |
+| RAM used | 753 MB | 710 MB | **−43 MB** |
+| Available | 292 MB | 305 MB | **+13 MB** |
+| Swap in use | 146 MB | **0 MB** | **−146 MB** |
+| Services running | 88 | 85 | −3 (some counted differently) |
+
+- **Swap cleared entirely** — no swapping at idle after debloat. The 146 MB of swap pressure is gone.
+- **43 MB RAM freed** from stopping 7 services.
+- All 7 targets confirmed `inactive` / `failed` (stopped); 7 runtime masks confirmed in place.
+- `com.webos.service.camera` shows `failed` rather than `inactive` — stopped cleanly, systemd just
+  records the exit state.
