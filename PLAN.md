@@ -51,6 +51,15 @@ from a computer.
 4. **If not rootable:** apply the settings debloat, try the Developer Mode launcher, and write an SSAP
    script for anything settings can't reach.
 
+## Root check so far (2026-10-26)
+
+- CanI.RootMy.TV identifies a device by its OTAID. Every OTAID in its bundled data is a TV family
+  (`HE_DTV_...`), and none looks like a projector.
+- The site lists 03.00.27 as a known version string, and 03.xx firmware lines up with webOS 6,
+  but without the projector's OTAID we can't say which entry, if any, applies.
+- Next: read the webOS TV version and OTAID from Settings → General → About. If the OTAID isn't
+  in the checker, ask on the OpenLGTV Discord with model, product code, software version and OTAID.
+
 ## Open questions
 
 - Which SoC is in the HU710PB? Root exploit applicability and service names depend on it.
