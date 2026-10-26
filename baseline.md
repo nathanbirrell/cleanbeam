@@ -101,3 +101,34 @@ Swap:             0           0           0
 - All 7 targets confirmed `inactive` / `failed` (stopped); 7 runtime masks confirmed in place.
 - `com.webos.service.camera` shows `failed` rather than `inactive` — stopped cleanly, systemd just
   records the exit state.
+
+## Post-debloat: all three hooks (2026-10-26)
+
+Cold reboot with `30-debloat` + `40-hosts` + `50-preload` all active.
+
+```
+              total        used        free      shared  buff/cache   available
+Mem:        1096864      724708       24316       32108      347840      298308
+Swap:        921592       46136      875456
+```
+
+### Full progression
+
+| Metric | Baseline | Debloat only | All three hooks | Total delta |
+| :----- | :------- | :----------- | :-------------- | :---------- |
+| RAM used | 753 MB | 710 MB | 724 MB | **−29 MB** |
+| Available | 292 MB | 305 MB | 298 MB | **+6 MB** |
+| Swap in use | 146 MB | 0 MB | 46 MB | **−100 MB** |
+| Services running | 88 | 85 | 85 | −3 |
+
+Notes:
+- The debloat-only measurement (0 MB swap) was taken on a quieter boot;
+  46 MB here reflects the preload manager loading a handful of apps before
+  the 50-preload hook ran and disabled the rest. Still a 100 MB improvement
+  over baseline.
+- 21 `127.0.0.1` entries in /etc/hosts confirmed; `lgsmartad.com` and
+  `alphonso.tv` both resolve locally.
+- All 7 bloat services confirmed inactive; 7 runtime masks in place.
+- The practical win on the home screen: ad/recommendation rows fail
+  instantly instead of timing out, and fewer preloaded apps competing for RAM
+  means less swapping when the home screen itself needs pages.
