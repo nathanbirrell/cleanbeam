@@ -148,6 +148,41 @@ LUNA_SOCKET=/tmp/var/run/luna-service2/com.palm.hub luna-send -w 3000 -n 1 \
 LPID=$!; sleep 2; kill $LPID 2>/dev/null; wait $LPID 2>/dev/null
 ```
 
+## Step 6 — Aerial screen saver (Apple only)
+
+LG's screen saver is replaced with Apple TV aerials by
+[nathanbirrell/custom-screensaver](https://github.com/nathanbirrell/custom-screensaver), a fork
+of the Homebrew Channel app [rchalaaa/custom-screensaver](https://github.com/rchalaaa/custom-screensaver)
+with the community videos removed. It plays 161 Apple clips: 139 streamed from
+`sylvan.apple.com`, and 22 newer ones that Apple only serves at 240fps, re-encoded to 60fps and
+hosted by [aabytt/sonoma-screen-savers](https://github.com/aabytt/sonoma-screen-savers).
+Nothing is stored on the projector; each clip streams when it plays.
+
+Build the IPK from the fork, then install it:
+
+```sh
+git clone --recurse-submodules https://github.com/nathanbirrell/custom-screensaver ~/dev/custom-screensaver
+cd ~/dev/custom-screensaver && npm run build -- --production && ares-package dist/
+scripts/install-aerial.sh ~/dev/custom-screensaver/org.rchalaaa.webos.custom-screensaver_1.0.4_all.ipk
+```
+
+`install-aerial.sh` keeps the app's settings across the reinstall and writes the boot hook
+`50-custom-screensaver-aerial`, which bind-mounts the app's QML over
+`com.webos.app.screensaver/qml/main.qml` on every boot. Settings (4K SDR, en-GB, titles on)
+are changed in the app itself and saved to its `assets/settings.json`.
+
+The fork keeps the upstream app ID, so if HBC offers an update to this app, declining it keeps
+the Apple-only playlist. To test without waiting for the timeout:
+
+```sh
+ssh root@<ip>
+LUNA_SOCKET=/tmp/var/run/luna-service2/com.palm.hub luna-send -w 3000 -n 1 \
+  luna://com.webos.service.tvpower/power/turnOnScreenSaver '{}' &
+LPID=$!; sleep 2; kill $LPID 2>/dev/null; wait $LPID 2>/dev/null
+```
+
+Any remote button closes it.
+
 ## Results
 
 Cold boot, measured from kernel start in `/var/log/bootd.log` (about 3s less than a
@@ -199,7 +234,7 @@ setting in PLXNative to avoid direct play.
 
 ```
 init.d/          Boot hooks — deploy to /var/lib/webosbrew/init.d/
-scripts/         Utility scripts (probe-ssap.py, fetch-reference.sh)
+scripts/         Utility scripts (probe-ssap.py, fetch-reference.sh, install-aerial.sh)
 baseline.md      Pre/post measurements and change log
 RESEARCH.md      Root investigation, device facts, community reports
 reference/       Upstream project clones (gitignored — re-fetch with scripts/fetch-reference.sh)
