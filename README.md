@@ -6,6 +6,11 @@ streaming projector. No antenna, no smart-TV cruft — just Plex/streaming apps 
 Root is required. Everything here assumes [Homebrew Channel (HBC)](https://github.com/webosbrew/webos-homebrew-channel)
 is installed and SSH is enabled.
 
+> **Disclaimer:** This documents what worked on my own device. Rooting modifies your
+> projector at your own risk — it may void your warranty, breach LG's terms of service,
+> or brick the device. Nothing here is affiliated with or endorsed by LG. Use it only on
+> hardware you own. No warranty; see [`LICENSE`](LICENSE).
+
 ## Device
 
 | Field | Value |

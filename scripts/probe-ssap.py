@@ -4,8 +4,8 @@ probe-ssap.py — minimal SSAP client to check for a specific app on an LG webOS
 Connects to ws://<ip>:3000, pairs, then queries applicationManager/getAppInfo.
 
 Usage:
-    python3 scripts/probe-ssap.py 192.168.1.249 com.webos.app.voiceweb
-    python3 scripts/probe-ssap.py 192.168.1.249   # lists a few known apps
+    python3 scripts/probe-ssap.py <projector-ip> com.webos.app.voiceweb
+    python3 scripts/probe-ssap.py <projector-ip>   # lists a few known apps
 """
 
 import json
@@ -126,7 +126,10 @@ def send_request(sock, uri, payload=None, req_id="req1"):
 
 
 def main():
-    host = sys.argv[1] if len(sys.argv) > 1 else "192.168.1.249"
+    if len(sys.argv) < 2:
+        print(f"Usage: {sys.argv[0]} <projector-ip> [app-id ...]")
+        sys.exit(1)
+    host = sys.argv[1]
     apps_to_check = sys.argv[2:] if len(sys.argv) > 2 else TARGET_APPS
 
     print(f"Connecting to {host}:3000 ...")
