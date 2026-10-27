@@ -18,21 +18,8 @@ is installed and SSH is enabled.
 
 ## Step 1 — Root the device
 
-Use the [IHIXly/lg-cinebeam-hu710pw-ROOT](https://github.com/IHIXly/lg-cinebeam-hu710pw-ROOT)
-SlopBro fork. It was written for the HU710PW (white variant) but works on the HU710PB-GL
-identically — same SoC, same webOS version, same exploit entry point (`com.webos.app.voiceweb`).
-
-```sh
-git clone https://github.com/IHIXly/lg-cinebeam-hu710pw-ROOT tools/slopbro
-cd tools/slopbro
-# follow its README — accept the pairing prompt on the projector
-```
-
-On success, Homebrew Channel appears on the home screen. Enable SSH in HBC settings and note the
-IP shown there.
-
-> The `tools/slopbro/` directory is gitignored here. See `RESEARCH.md` for the full root
-> investigation and community reports.
+See [`ROOTING.md`](ROOTING.md) for the confirmed path for this projector, including
+CineBeam-specific differences from standard LG TV rooting guides.
 
 ## Step 2 — Block firmware updates
 
@@ -101,10 +88,10 @@ Disables SAM preloading for 19 streaming and promo apps (Netflix, Disney+, Prime
 via `setPreloadPolicy`. Prevents them from being loaded into RAM in the background while
 browsing the home screen.
 
-#### `65-luma-home-restart`
+#### `63-luma-home-early` and `65-luma-home-restart`
 
-Fixes a boot timing issue with Luma's home integration (see Step 4). Run this only after
-Luma is installed.
+Fix a boot timing issue with Luma's home integration (see Step 4). Only have effect when
+Luma's home integration is enabled.
 
 ## Step 4 — Install Luma and enable home integration
 
@@ -118,15 +105,19 @@ ssh root@<ip> "sh /var/lib/luma-home/home.sh enable"
 This bind-mounts Luma's binary over `/usr/bin/com.webos.app.home` so the Home button always
 opens Luma. LG's home manifest stays in place; Luma registers with SAM itself.
 
-### Boot timing fix (`65-luma-home-restart`)
+### Boot timing (`63-luma-home-early` + `65-luma-home-restart`)
 
-Luma's boot hook (`64-luma-home`) forks a background `sleep 5; apply` job. During those 5
-seconds webOS SAM can launch `com.webos.app.home` using the original LG binary. Our hook kills
-that stale process at t+8s — after the bind-mount is guaranteed to be in place — so the next
-Home press launches Luma's binary.
+Luma's default boot hook sleeps 5 seconds before applying the bind-mount. During that window,
+pressing Home opens the original LG launcher. Two hooks fix this:
 
-This hook is already in `init.d/` and was deployed in Step 3. It only has effect when Luma's
-home integration is enabled.
+- `63-luma-home-early` — applies the bind-mount at t+2s instead of t+5s, cutting the window
+- `65-luma-home-restart` — kills any stale LG home process at t+8s as a fallback
+
+Both are already in `init.d/` and were deployed in Step 3.
+
+**Boot sequence note:** The projector starts on the last-active input (HDMI) and transitions to
+Luma automatically once the system is fully up. Pressing Home immediately after the display
+appears may still catch the 2-second window. Waiting a moment reliably lands on Luma.
 
 ## Step 5 — One-time Luna settings
 
@@ -146,16 +137,22 @@ LPID=$!; sleep 2; kill $LPID 2>/dev/null; wait $LPID 2>/dev/null
 
 ## Results
 
-Cold-boot measurements after all changes:
+Cold-boot RAM measurements (all hooks active, Luma installed):
 
-| Metric | Baseline (pre-root) | After |
-| :----- | :------------------ | :---- |
-| RAM used | 753 MB | ~533 MB |
-| Available RAM | 292 MB | ~454 MB |
-| Swap in use | 146 MB | ~0 MB |
+| Metric | Baseline (pre-root) | After debloat | After all hooks |
+| :----- | :------------------ | :------------ | :-------------- |
+| RAM used | 753 MB | 710 MB | ~533 MB |
+| Available RAM | 292 MB | 305 MB | ~454 MB |
+| Swap in use | 146 MB | 0 MB | ~0 MB |
 
-Boot time is ~31 seconds regardless — the critical path is `snapshot-boot-on.service`
-(12s GPU/display init), a hardware dependency. Quick Start+ is not available on this model.
+The largest single wins: stopping ACR/telemetry services (−43 MB RAM, −146 MB swap), disabling
+app preloading (frees RAM previously occupied by background Netflix/Disney+/etc. instances), and
+blocking ad domains (home screen rows fail fast instead of timing out on every view).
+
+**Boot time is ~31 seconds** regardless of changes — the critical path is
+`snapshot-boot-on.service` (12s GPU/display init, a hardware dependency). Quick Start+ standby
+is not available on this model. The 13 masked services are not on the critical path so masking
+them does not change the countdown; they save post-boot CPU and RAM only.
 
 ## Known limitations
 
