@@ -104,6 +104,11 @@ Bind-mounts a replacement `/etc/hosts` that blocks ~50 LG ad, telemetry, update,
 domains. Requests fail instantly (127.0.0.1) instead of timing out. Includes HBC's own
 update-blocking entries since this mount overlays HBC's.
 
+It also blocks SBS On Demand's ads. The app asks Google DAI (`dai.google.com`) for a stream
+with the ads built in, and when that request fails it plays SBS's plain, ad-free HLS stream
+instead. `securepubads.g.doubleclick.net` is blocked too, which removes its pause-screen ads.
+The block applies to every app, so other apps that use Google DAI are affected as well.
+
 #### `50-preload`
 
 Disables SAM preloading for 19 streaming and promo apps (Netflix, Disney+, Prime Video, etc.)

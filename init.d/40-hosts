@@ -47,6 +47,11 @@ ff02::2 ip6-allrouters
 # Third-party ad/analytics
 127.0.0.1 smartclip.com smartclip-services.com yumenetworks.com
 127.0.0.1 ueiwsp.com lgtviot.com
+
+# SBS On Demand ads: Google DAI ad-stitched streams + pause ads.
+# When the DAI request fails, the app plays its plain HLS fallback stream instead.
+127.0.0.1 dai.google.com securepubads.g.doubleclick.net
+::1       dai.google.com securepubads.g.doubleclick.net
 HOSTS
 
 chmod 444 "$HOSTS_TMP"
