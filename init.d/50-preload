@@ -6,6 +6,14 @@
 # Essential apps kept preloaded: home, hdmi*, quicksettings, miracast.
 # Disabled: Netflix, YouTube, Amazon, browser, voice/assistant, promo apps.
 
+# Run in the background: 21 sequential luna-send calls under boot load held up the
+# Luma hooks behind this one.
+if [ -z "$CLEANBEAM_BG" ]; then
+  CLEANBEAM_BG=1 "$0" "$@" </dev/null >> /tmp/cleanbeam-hooks.log 2>&1 &
+  exit 0
+fi
+echo "50-preload: start $(cut -d' ' -f1 /proc/uptime)"
+
 LUNA="luna-send -w 3000 -n 1"
 SVC="luna://com.webos.service.preloadmanager/setPreloadPolicy"
 
@@ -44,4 +52,4 @@ disable_preload "com.webos.app.toss"
 disable_preload "com.webos.app.livetv"
 disable_preload "com.webos.app.livemenu"
 
-echo "50-preload: done"
+echo "50-preload: done $(cut -d' ' -f1 /proc/uptime)"

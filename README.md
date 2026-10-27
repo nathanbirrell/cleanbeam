@@ -56,6 +56,15 @@ ssh root@<ip> "chmod +x /var/lib/webosbrew/init.d/*"
 
 ### What each hook does
 
+HBC starts the hooks about 32s into boot and runs them one at a time. `30-debloat` and
+`50-preload` move themselves to the background so they don't hold up the rest; their
+start and finish times go to `/tmp/cleanbeam-hooks.log`.
+
+#### `05-luma-home-first`
+
+Applies Luma's bind-mount first thing, then launches Home so Luma is in front at ~40s
+without pressing anything (see Step 4). Logs to `/var/lib/luma-home/boot.log`.
+
 #### `30-debloat`
 
 Stops and runtime-masks 13 services that have no purpose on a streaming projector:
@@ -93,11 +102,6 @@ Disables SAM preloading for 19 streaming and promo apps (Netflix, Disney+, Prime
 via `setPreloadPolicy`. Prevents them from being loaded into RAM in the background while
 browsing the home screen.
 
-#### `63-luma-home-early` and `65-luma-home-restart`
-
-Fix a boot timing issue with Luma's home integration (see Step 4). Only have effect when
-Luma's home integration is enabled.
-
 ## Step 4 — Install Luma and enable home integration
 
 [Luma](https://github.com/ecklf/luma) replaces the LG home screen with a native Plex/streaming
@@ -110,19 +114,23 @@ ssh root@<ip> "sh /var/lib/luma-home/home.sh enable"
 This bind-mounts Luma's binary over `/usr/bin/com.webos.app.home` so the Home button always
 opens Luma. LG's home manifest stays in place; Luma registers with SAM itself.
 
-### Boot timing (`63-luma-home-early` + `65-luma-home-restart`)
+### Replace Luma's boot hook with `05-luma-home-first`
 
-Luma's default boot hook sleeps 5 seconds before applying the bind-mount. During that window,
-pressing Home opens the original LG launcher. Two hooks fix this:
+`home.sh enable` installs `/var/lib/webosbrew/init.d/64-luma-home`, which applies the mount
+5s after it runs. Remove it; `05-luma-home-first` (deployed in Step 3) does the same job
+earlier:
 
-- `63-luma-home-early` — applies the bind-mount at t+2s instead of t+5s, cutting the window
-- `65-luma-home-restart` — kills any stale LG home process at t+8s as a fallback
+```sh
+ssh root@<ip> "rm /var/lib/webosbrew/init.d/64-luma-home"
+```
 
-Both are already in `init.d/` and were deployed in Step 3.
+Leaving both in place breaks the boot: every `home.cjs apply` stops all
+`/usr/bin/com.webos.app.home` processes, Luma included, so 64's apply closes the Luma that 05
+just launched. Running `home.sh enable` again reinstalls 64, so remove it again afterwards.
 
-**Boot sequence note:** The projector starts on the last-active input (HDMI) and transitions to
-Luma automatically once the system is fully up. Pressing Home immediately after the display
-appears may still catch the 2-second window. Waiting a moment reliably lands on Luma.
+**Boot sequence:** the projector shows the last input (HDMI "No signal") at ~19s, then Luma
+comes to the front by itself at ~40s. Before this hook, Luma only appeared at ~67s, when LG's
+preloadmanager launched Home.
 
 ## Step 5 — One-time Luna settings
 
@@ -141,6 +149,19 @@ LPID=$!; sleep 2; kill $LPID 2>/dev/null; wait $LPID 2>/dev/null
 ```
 
 ## Results
+
+Cold boot, measured from kernel start in `/var/log/bootd.log` (about 3s less than a
+stopwatch from the power button):
+
+| Milestone | Before | After `05-luma-home-first` |
+| :-------- | :----- | :------------------------- |
+| HDMI in front | 16s | 16s |
+| Luma bind-mount applied | ~56–59s | ~39s |
+| Luma in front | ~67s | ~40s |
+
+The 16s is LG's snapshot (hibernation image) resume and is already the fast path. Quick Start+
+(`option.quickStartMode`, hidden on this model) does suspend to RAM, but wakes with a dark screen,
+so leave it off.
 
 Cold-boot RAM measurements (all hooks active, Luma installed):
 

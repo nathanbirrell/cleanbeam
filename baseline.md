@@ -179,3 +179,18 @@ shows "LG launcher" and only later presses kill/restart the process and hit the 
 **Fix:** `65-luma-home-restart` forks `sleep 8; pkill com.webos.app.home`. The LG process is gone
 before any reasonable user would press Home. Next Home press launches a fresh `com.webos.app.home`
 using Luma's binary (already mounted).
+
+## Boot speed (2026-10-27)
+
+Times from kernel start, from `/var/log/bootd.log` and `/var/log/messages`.
+
+- Cold boot is LG's snapshot resume (`snapshot resume=/dev/mmcblk0p53`, `/sys/power/mode` = `resume`).
+  HDMI is in front at 16s (19s on a stopwatch). `systemd-analyze` times come partly from the image.
+- `option.alwaysOnPjtr=on`: no effect; it still powers off fully.
+- `option.quickStartMode=on`: suspends to RAM, and HDMI is in front ~1s after the wake, but the
+  screen stays dark and `power/turnOnScreen` is refused. Reverted.
+- HBC runs init.d at ~32s. `50-preload` took ~20s under boot load and held the Luma hooks behind it
+  until ~54s. Luma came to the front only when preloadmanager launched Home at ~66s.
+- `65-luma-home-restart` and `64-luma-home` both closed an early-launched Luma: `home.cjs apply`
+  SIGTERMs every `/usr/bin/com.webos.app.home`. Both were replaced by `05-luma-home-first`, with
+  30/50 backgrounded. Luma is now in front at 40.6s and stays.

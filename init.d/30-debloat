@@ -3,6 +3,14 @@
 # Uses /run/systemd/transient/ so masks are volatile — re-applied each boot by HBC's run-parts.
 # Modify the SERVICES list to add/remove targets; reboot to re-enable anything removed.
 
+# Run in the background: run-parts waits for each hook, and daemon-reload plus 13 stops
+# under boot load held up the Luma hooks behind it.
+if [ -z "$CLEANBEAM_BG" ]; then
+  CLEANBEAM_BG=1 "$0" "$@" </dev/null >> /tmp/cleanbeam-hooks.log 2>&1 &
+  exit 0
+fi
+echo "30-debloat: start $(cut -d' ' -f1 /proc/uptime)"
+
 SERVICES="
   contentminer.service
   nudge.service
@@ -40,4 +48,4 @@ for unit in $SERVICES; do
   fi
 done
 
-echo "30-debloat: done"
+echo "30-debloat: done $(cut -d' ' -f1 /proc/uptime)"

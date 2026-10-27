@@ -1,0 +1,20 @@
+#!/bin/sh
+# Mount Luma over LG Home before the slower hooks, then bring it to the front.
+# run-parts waits for each hook in turn, and with 30-debloat and 50-preload ahead of
+# it the mount landed ~56s into boot (HBC starts the hooks at ~32s).
+# Replaces Luma's own 64-luma-home hook, which must be removed: every home.cjs apply
+# SIGTERMs all /usr/bin/com.webos.app.home processes, Luma included, so its second
+# apply at +5s closed the Luma launched here. `home.sh enable` reinstalls 64.
+[ -f /var/lib/luma-home/home.sh ] || exit 0
+(
+  echo "05-luma-home-first: start $(cut -d' ' -f1 /proc/uptime)"
+  sh /var/lib/luma-home/home.sh apply
+  echo "05-luma-home-first: applied $(cut -d' ' -f1 /proc/uptime)"
+  # Without this Luma only comes to the front when preloadmanager launches Home at
+  # ~66s. apply has already stopped any LG Home started before the mount.
+  if grep -q ' /usr/bin/com.webos.app.home ' /proc/mounts; then
+    luna-send -w 5000 -n 1 luna://com.webos.applicationManager/launch '{"id":"com.webos.app.home"}'
+    echo "05-luma-home-first: launched $(cut -d' ' -f1 /proc/uptime)"
+  fi
+) </dev/null >> /var/lib/luma-home/boot.log 2>&1 &
+exit 0
