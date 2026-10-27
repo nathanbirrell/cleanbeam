@@ -1,0 +1,39 @@
+#!/bin/sh
+# Screen saver after 5 min idle; power off after 15 more min of screen saver (20 min idle).
+# LG's own auto-off only covers no signal (time.autoOff15Min) or 2-8 h without a button
+# press (time.automaticStandBy), so the 20 min sleep is timed here. nopd starts the screen
+# saver only while nothing holds a screen-saver request (playing apps do), so playback is
+# not cut off. The configd value is volatile and is reapplied every boot.
+# Undo: delete this hook and reboot.
+
+SCREENSAVER_SECONDS=300
+SLEEP_AFTER_SCREENSAVER_SECONDS=900
+POLL_SECONDS=30
+
+luna() {
+  luna-send -w 3000 -n 1 "$1" "$2" &
+  pid=$!; sleep 3; kill $pid 2>/dev/null; wait $pid 2>/dev/null
+}
+
+(
+  luna luna://com.webos.service.config/setConfigs \
+    "{\"configs\":{\"com.webos.service.nop.screenSaverTimeout\":${SCREENSAVER_SECONDS}}}"
+  # nopd reads the timeout once at start, and nopd is already up when HBC runs hooks.
+  systemctl restart nopd.service
+  echo "20-idle-sleep: screen saver timeout ${SCREENSAVER_SECONDS}s"
+
+  saver_for=0
+  while sleep "$POLL_SECONDS"; do
+    if luna luna://com.webos.service.tvpower/power/getPowerState '{}' | grep -q '"Screen Saver"'; then
+      saver_for=$((saver_for + POLL_SECONDS))
+    else
+      saver_for=0
+    fi
+    if [ "$saver_for" -ge "$SLEEP_AFTER_SCREENSAVER_SECONDS" ]; then
+      echo "20-idle-sleep: powering off after ${saver_for}s of screen saver"
+      luna luna://com.webos.service.tvpower/power/powerOff '{"reason":"autoOff"}'
+      saver_for=0
+    fi
+  done
+) </dev/null >> /tmp/cleanbeam-hooks.log 2>&1 &
+exit 0

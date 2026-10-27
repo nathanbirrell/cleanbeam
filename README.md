@@ -65,6 +65,14 @@ start and finish times go to `/tmp/cleanbeam-hooks.log`.
 Applies Luma's bind-mount first thing, then launches Home so Luma is in front at ~40s
 without pressing anything (see Step 4). Logs to `/var/lib/luma-home/boot.log`.
 
+#### `20-idle-sleep`
+
+Starts the screen saver after 5 min idle and powers off after 15 more min of screen saver
+(20 min idle). LG's own auto-off only covers no signal or 2–8 h without a button press. The
+screen-saver timeout is a volatile configd value, so the hook sets it and restarts `nopd` every
+boot, then polls the power state every 30s in the background. Playing apps hold a screen-saver
+request, so playback is never cut off. Logs to `/tmp/cleanbeam-hooks.log`.
+
 #### `30-debloat`
 
 Stops and runtime-masks 13 services that have no purpose on a streaming projector:
