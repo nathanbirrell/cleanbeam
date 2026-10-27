@@ -30,10 +30,12 @@ confirm `com.webos.app.voiceweb` appears.
 
 ## Prerequisites
 
-1. **LG Developer Mode** must be installed and active. Find it in the LG Content Store, or
-   sideload via the Developer Mode app at [webostv.developer.lge.com](https://webostv.developer.lge.com).
-2. The projector must be on the same local network as your computer.
-3. Your computer needs Python 3 and Node.js.
+1. The projector must be on the same local network as your computer.
+2. Your computer needs Python 3 and Node.js.
+
+LG Developer Mode is **not required**. SlopBro connects via SSAP (LG's built-in Smart TV
+WebSocket API on port 3000), which is always available. Developer Mode is only needed for
+manual app sideloading without root.
 
 ## Steps
 
