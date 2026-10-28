@@ -1,7 +1,8 @@
 // siri-bridge: drive the LG CineBeam (webOS) with a 2015 Siri Remote paired to this Mac.
 //
 //   swiftc -O siri-bridge.swift -o siri-bridge
-//   ./siri-bridge --host <projector-ip> [--ssh <ssh-alias>] [--pairing pairing.json] [--test BUTTON]
+//   ./siri-bridge --host <projector-ip> [--ssh <ssh-alias>] [--wake <wifi-mac>] [--pairing pairing.json]
+//                 [--test BUTTON]
 //
 // Buttons come from the remote's HID button interface (report 0xFA, one bit per button).
 // Swipes and taps come from its touchpad through the private MultitouchSupport framework. Keys
@@ -12,6 +13,9 @@
 // SSAP can only send complete key presses. With --ssh <host> (root SSH to the rooted projector),
 // holding the touchpad click becomes a real long press of OK, written straight into the LG
 // remote's input device, which opens context menus in apps like Plex and YouTube.
+//
+// With --wake <mac> (the projector's Wi-Fi MAC, and LG's "turn on via Wi-Fi" setting on), a
+// button press while the projector is unreachable sends a Wake-on-LAN packet to turn it on.
 
 import Foundation
 import IOKit.hid
@@ -24,19 +28,55 @@ var pairingPath = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlin
     .deletingLastPathComponent().appendingPathComponent("pairing.json").path
 var testButton: String?
 var sshHost: String?
+var wakeMAC: String?
 var argv = CommandLine.arguments.dropFirst().makeIterator()
 while let a = argv.next() {
     switch a {
     case "--host": host = argv.next() ?? host
     case "--ssh": sshHost = argv.next()
+    case "--wake": wakeMAC = argv.next()
     case "--pairing": pairingPath = argv.next() ?? pairingPath
     case "--test": testButton = argv.next()
     default: log("unknown argument \(a)"); exit(2)
     }
 }
 if host.isEmpty {
-    log("usage: siri-bridge --host <projector-ip> [--ssh <ssh-alias>] [--pairing pairing.json] [--test BUTTON]")
+    log("usage: siri-bridge --host <projector-ip> [--ssh <ssh-alias>] [--wake <wifi-mac>] [--pairing pairing.json] [--test BUTTON]")
     exit(2)
+}
+
+// Wake-on-LAN magic packet: 6 × 0xFF, then the MAC 16 times. Sent to the limited broadcast, the
+// projector's /24 broadcast and the projector itself, on UDP port 9.
+func sendWakeOnLAN(mac: String) {
+    let bytes = mac.split(whereSeparator: { $0 == ":" || $0 == "-" }).compactMap { UInt8($0, radix: 16) }
+    guard bytes.count == 6 else {
+        log("bad --wake MAC \(mac)")
+        return
+    }
+    let packet = [UInt8](repeating: 0xFF, count: 6) + Array([[UInt8]](repeating: bytes, count: 16).joined())
+    let fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+    guard fd >= 0 else { return }
+    defer { close(fd) }
+    var on: Int32 = 1
+    setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &on, socklen_t(MemoryLayout<Int32>.size))
+    var targets = ["255.255.255.255"]
+    let octets = host.split(separator: ".")
+    if octets.count == 4 { targets += [octets.prefix(3).joined(separator: ".") + ".255", host] }
+    for target in targets {
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(9).bigEndian
+        guard inet_pton(AF_INET, target, &addr.sin_addr) == 1 else { continue }
+        _ = packet.withUnsafeBytes { buffer in
+            withUnsafePointer(to: &addr) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    sendto(fd, buffer.baseAddress, buffer.count, 0, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+        }
+    }
+    log("-> wake-on-LAN \(mac)")
 }
 
 // MARK: - Projector (SSAP)
@@ -49,13 +89,16 @@ final class Projector: NSObject, URLSessionDelegate {
     private var nextID = 0
     private var connecting = false
     private var backoff = 2.0
+    private var lastWake = Date.distantPast
     private let keyFile = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/cleanbeam-remote/client-key")
     var onReady: (() -> Void)?
 
     override init() {
         super.init()
-        session = URLSession(configuration: .default, delegate: self, delegateQueue: .main)
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 5 // don't sit on a projector that's off
+        session = URLSession(configuration: config, delegate: self, delegateQueue: .main)
         Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in self?.keepAlive() }
     }
 
@@ -80,10 +123,21 @@ final class Projector: NSObject, URLSessionDelegate {
         register()
     }
 
+    // A press while the projector is unreachable wakes it (with --wake) and retries quickly, so
+    // keys work again as soon as it's up. The press itself is dropped, like waking an Apple TV.
+    private func wakeAndConnect() {
+        if let wakeMAC, Date().timeIntervalSince(lastWake) > 3 {
+            lastWake = Date()
+            sendWakeOnLAN(mac: wakeMAC)
+        }
+        backoff = 2
+        connect()
+    }
+
     func button(_ name: String) {
         guard let pointer else {
             log("not connected, dropped \(name)")
-            connect()
+            wakeAndConnect()
             return
         }
         log("-> \(name)")
@@ -95,7 +149,7 @@ final class Projector: NSObject, URLSessionDelegate {
     func request(_ uri: String) {
         guard pointer != nil else {
             log("not connected, dropped \(uri)")
-            connect()
+            wakeAndConnect()
             return
         }
         log("-> \(uri)")
@@ -146,6 +200,7 @@ final class Projector: NSObject, URLSessionDelegate {
             self.connecting = false
             self.backoff = 2
             log("pointer socket open")
+            injector?.startIfStopped()
             self.onReady?()
         }
     }
@@ -204,7 +259,8 @@ final class Projector: NSObject, URLSessionDelegate {
         handlers = [:]
         connecting = false
         DispatchQueue.main.asyncAfter(deadline: .now() + backoff) { [weak self] in self?.connect() }
-        backoff = min(backoff * 2, 30)
+        // Right after a wake the projector is booting, so keep retrying quickly.
+        backoff = Date().timeIntervalSince(lastWake) < 60 ? 2 : min(backoff * 2, 30)
     }
 }
 
@@ -220,6 +276,7 @@ final class KeyInjector {
     private var input: FileHandle?
     private var backoff = 5.0
     private var startedAt = Date()
+    private var pendingRestart: DispatchWorkItem?
     private static let script = """
     import os, struct, sys, time
     fd = os.open("/dev/input/event1", os.O_WRONLY)
@@ -241,6 +298,14 @@ final class KeyInjector {
     }
 
     var isRunning: Bool { process?.isRunning ?? false }
+
+    // Called once the projector is reachable again, so long presses work without waiting out the backoff.
+    func startIfStopped() {
+        guard !isRunning else { return }
+        pendingRestart?.cancel()
+        backoff = 5
+        start()
+    }
 
     func down(_ code: Int) { write("d \(code)") }
     func up(_ code: Int) { write("u \(code)") }
@@ -265,12 +330,14 @@ final class KeyInjector {
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
         // While the projector is off, back off to one attempt a minute instead of filling the log.
-        p.terminationHandler = { [weak self] _ in
+        p.terminationHandler = { [weak self] exited in
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, exited === self.process else { return }
                 if Date().timeIntervalSince(self.startedAt) > 60 { self.backoff = 5 }
                 if self.backoff == 5 { log("injector exited; retrying every \(Int(self.backoff))–60s until the projector is back") }
-                DispatchQueue.main.asyncAfter(deadline: .now() + self.backoff) { self.start() }
+                let restart = DispatchWorkItem { self.start() }
+                self.pendingRestart = restart
+                DispatchQueue.main.asyncAfter(deadline: .now() + self.backoff, execute: restart)
                 self.backoff = min(self.backoff * 2, 60)
             }
         }
@@ -316,6 +383,16 @@ let buttonMappings = [
     ButtonMapping(bit: 0x04, key: "VOLUMEDOWN", repeats: true),
 ]
 let longPressDelay = 0.5
+// Held volume repeats after repeatDelay, then speeds up: each gap is repeatAcceleration times the
+// last, down to repeatFastestInterval (about 6 steps a second at first, 22 after about 1s).
+let repeatDelay = 0.4, repeatStartInterval = 0.16, repeatAcceleration = 0.8, repeatFastestInterval = 0.045
+
+func scheduleRepeat(_ m: ButtonMapping, after delay: Double, next interval: Double) {
+    repeatTimers[m.bit] = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { _ in
+        press(m.key)
+        scheduleRepeat(m, after: interval, next: max(interval * repeatAcceleration, repeatFastestInterval))
+    }
+}
 let okKeyCode = 28 // KEY_ENTER, what the LG remote's OK sends
 
 var heldButtons: UInt8 = 0
@@ -364,11 +441,7 @@ func buttonsChanged(_ state: UInt8) {
                 continue
             }
             press(m.key)
-            if m.repeats {
-                repeatTimers[m.bit] = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { _ in
-                    repeatTimers[m.bit] = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { _ in press(m.key) }
-                }
-            }
+            if m.repeats { scheduleRepeat(m, after: repeatDelay, next: repeatStartInterval) }
         } else if !isDown && wasDown {
             repeatTimers.removeValue(forKey: m.bit)?.invalidate()
             if let timer = longPressTimers.removeValue(forKey: m.bit) {
@@ -460,71 +533,143 @@ let MTRegisterContactFrameCallback = sym("MTRegisterContactFrameCallback", (@con
 let MTDeviceStart = sym("MTDeviceStart", (@convention(c) (MTDeviceRef, Int32) -> Int32).self)
 let remoteFamily: Int32 = 161
 
-// One key per swipe, fired as soon as the finger has travelled far enough. Keeping the finger
-// down after a swipe repeats that direction, for scrolling long lists.
+// Swipes: the first arrow fires once the finger has travelled swipeDistance, which also locks
+// the stroke to that axis. Every further stepDistance along the axis sends another arrow (moving
+// back sends the opposite one), so a long drag walks through a grid or skips repeatedly in a
+// player. A fast flick keeps going for a few more arrows after the finger lifts. Resting the
+// finger after a swipe repeats the last arrow.
 // A quick tap near an edge sends that arrow, like the Apple TV remote: in a player, tapping the
 // left or right edge skips back or forward. Taps in the middle, and taps that end in a click,
 // do nothing.
+// Distances are in pad widths (0...1) and speeds in pad widths per second.
 let swipeDistance: Float = 0.3
+let stepDistance: Float = 0.2
+let flickSpeed: Float = 6, flickStepSpeed: Float = 3, maxFlickSteps = 5
+let restSpeed: Float = 0.3
 let holdBeforeRepeat = 0.6, repeatInterval = 0.18
 let tapMaxDuration = 0.35, tapMaxTravel: Float = 0.1, tapEdgeZone: Float = 0.2
 var strokeStart: MTPoint?
 var strokeStartTime = Date.distantPast
 var strokeTravel: Float = 0
-var strokeDirection: String?
+var strokeHorizontal: Bool?        // axis, locked by the first arrow
+var strokeAnchor: Float = 0        // position along that axis where the last step fired
+var strokeDirection: String?       // last arrow sent, repeated while the finger rests
+var strokeSteps = 0
+var recentPositions: [(time: Double, position: MTPoint)] = [] // time: the touchpad's own frame timestamp
+var restingSince: Date?
 var lastFired = Date.distantPast
 var repeating = false
 
-func strokeEnded() {
-    defer {
-        strokeStart = nil
-        strokeDirection = nil
-        repeating = false
-        clickedDuringStroke = false
-    }
-    guard let start = strokeStart, strokeDirection == nil, !clickedDuringStroke, heldButtons & 0x80 == 0,
-          strokeTravel <= tapMaxTravel, Date().timeIntervalSince(strokeStartTime) <= tapMaxDuration else { return }
-    let dx = start.x - 0.5, dy = start.y - 0.5
-    guard max(abs(dx), abs(dy)) >= tapEdgeZone else { return }
-    projector.button(abs(dx) > abs(dy) ? (dx > 0 ? "RIGHT" : "LEFT") : (dy > 0 ? "UP" : "DOWN"))
+func arrow(horizontal: Bool, positive: Bool) -> String {
+    horizontal ? (positive ? "RIGHT" : "LEFT") : (positive ? "UP" : "DOWN")
 }
 
-func touchFrame(_ position: MTPoint?) {
-    guard let position else {
-        if strokeStart != nil { strokeEnded() }
-        return
-    }
-    guard let start = strokeStart else {
-        strokeStart = position
-        strokeStartTime = Date()
-        strokeTravel = 0
-        return
-    }
-    strokeTravel = max(strokeTravel, abs(position.x - start.x), abs(position.y - start.y))
-    if let direction = strokeDirection {
-        let wait = repeating ? repeatInterval : holdBeforeRepeat
-        if Date().timeIntervalSince(lastFired) >= wait {
-            repeating = true
-            lastFired = Date()
-            projector.button(direction)
-        }
-        return
-    }
-    let dx = position.x - start.x, dy = position.y - start.y
-    guard max(abs(dx), abs(dy)) >= swipeDistance else { return }
-    let direction = abs(dx) > abs(dy) ? (dx > 0 ? "RIGHT" : "LEFT") : (dy > 0 ? "UP" : "DOWN")
+func fire(_ direction: String) {
     strokeDirection = direction
+    strokeSteps += 1
     lastFired = Date()
     projector.button(direction)
 }
 
-let contactCallback: ContactCallback = { _, touches, count, _, _ in
+// Signed speed along one axis over the last ~60 ms, using the touchpad's frame timestamps:
+// frames can reach the main queue in bunches, so arrival times would give absurd speeds.
+func recentSpeed(horizontal: Bool) -> Float {
+    guard let last = recentPositions.last,
+          let first = recentPositions.first(where: { last.time - $0.time <= 0.06 }),
+          last.time - first.time >= 0.03 else { return 0 }
+    let distance = horizontal ? last.position.x - first.position.x : last.position.y - first.position.y
+    return distance / Float(last.time - first.time)
+}
+
+func strokeEnded() {
+    defer {
+        strokeStart = nil
+        strokeHorizontal = nil
+        strokeDirection = nil
+        strokeSteps = 0
+        recentPositions.removeAll()
+        restingSince = nil
+        repeating = false
+        clickedDuringStroke = false
+    }
+    if let horizontal = strokeHorizontal {
+        let speed = recentSpeed(horizontal: horizontal)
+        var extra = 0
+        if abs(speed) >= flickSpeed {
+            extra = min(Int((abs(speed) - flickSpeed) / flickStepSpeed) + 1, maxFlickSteps)
+            let direction = arrow(horizontal: horizontal, positive: speed > 0)
+            for i in 1...extra {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.07 * Double(i)) { projector.button(direction) }
+            }
+        }
+        log(String(format: "swipe: %d step(s), lift speed %.1f, +%d flick", strokeSteps, abs(speed), extra))
+        return
+    }
+    guard let start = strokeStart, !clickedDuringStroke, heldButtons & 0x80 == 0,
+          strokeTravel <= tapMaxTravel, Date().timeIntervalSince(strokeStartTime) <= tapMaxDuration else { return }
+    let dx = start.x - 0.5, dy = start.y - 0.5
+    guard max(abs(dx), abs(dy)) >= tapEdgeZone else { return }
+    projector.button(arrow(horizontal: abs(dx) > abs(dy), positive: abs(dx) > abs(dy) ? dx > 0 : dy > 0))
+}
+
+func touchFrame(_ position: MTPoint?, at frameTime: Double) {
+    guard let position else {
+        if strokeStart != nil { strokeEnded() }
+        return
+    }
+    let now = Date()
+    recentPositions.append((frameTime, position))
+    recentPositions.removeAll { frameTime - $0.time > 0.2 }
+    guard let start = strokeStart else {
+        strokeStart = position
+        strokeStartTime = now
+        strokeTravel = 0
+        return
+    }
+    strokeTravel = max(strokeTravel, abs(position.x - start.x), abs(position.y - start.y))
+
+    guard let horizontal = strokeHorizontal else {
+        let dx = position.x - start.x, dy = position.y - start.y
+        guard max(abs(dx), abs(dy)) >= swipeDistance else { return }
+        let h = abs(dx) > abs(dy)
+        strokeHorizontal = h
+        strokeAnchor = h ? position.x : position.y
+        fire(arrow(horizontal: h, positive: (h ? dx : dy) > 0))
+        return
+    }
+
+    let along = horizontal ? position.x : position.y
+    if abs(along - strokeAnchor) >= stepDistance {
+        let positive = along > strokeAnchor
+        strokeAnchor += positive ? stepDistance : -stepDistance
+        restingSince = nil
+        repeating = false
+        fire(arrow(horizontal: horizontal, positive: positive))
+        return
+    }
+
+    if abs(recentSpeed(horizontal: horizontal)) >= restSpeed {
+        restingSince = nil
+        repeating = false
+        return
+    }
+    let rest = restingSince ?? now
+    restingSince = rest
+    guard let direction = strokeDirection else { return }
+    let due = repeating ? now.timeIntervalSince(lastFired) >= repeatInterval : now.timeIntervalSince(rest) >= holdBeforeRepeat
+    if due {
+        repeating = true
+        fire(direction)
+    }
+}
+
+let contactCallback: ContactCallback = { _, touches, count, timestamp, _ in
     var position: MTPoint?
     for i in 0..<Int(count) {
         let t = touches!.load(fromByteOffset: i * MemoryLayout<MTTouch>.stride, as: MTTouch.self)
         if (3...5).contains(t.state) { position = t.normalized.pos; break }
     }
-    DispatchQueue.main.async { touchFrame(position) }
+    DispatchQueue.main.async { touchFrame(position, at: timestamp) }
     return 0
 }
 

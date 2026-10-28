@@ -224,19 +224,29 @@ framework. The bridge sends keys through webOS's own network remote API (SSAP, `
 
 | Remote | Projector |
 | :----- | :-------- |
-| Swipe up / down / left / right | Arrow keys (keep your finger down after a swipe to repeat) |
+| Swipe up / down / left / right | Arrow keys, one more for each further fifth of the pad (see below) |
 | Quick tap near an edge | That arrow, like Apple TV: skips back or forward in a player |
+| Any button while the projector is off | Turns it on (needs `--wake`) |
 | Touchpad click | OK |
 | Hold touchpad click | Long press of OK: opens context menus in Plex and YouTube (needs `--ssh`) |
 | Menu | Back |
 | TV/Home | Home |
 | Hold TV/Home | Turn the projector off |
 | Play/Pause | Play / Pause (alternates) |
-| Vol+ / Vol− | Volume (hold to repeat) |
+| Vol+ / Vol− | Volume (hold to repeat, speeding up the longer you hold) |
 | Siri | Settings menu |
 
-Taps in the middle of the touchpad, and taps that end in a click, do nothing. Holds take half a
-second; until then, Click and TV/Home wait for release before sending their short key.
+A swipe sends its first arrow after travelling 30% of the pad, which also locks it to that axis.
+Each further 20% sends another arrow, and moving back sends the opposite one, so one long drag
+walks through a grid or skips repeatedly in a player. A fast flick adds up to 5 more arrows after
+you lift, and resting your finger after a swipe repeats the last arrow. Taps in the middle of the
+touchpad, and taps that end in a click, do nothing. Holds take half a second; until then, Click
+and TV/Home wait for release before sending their short key.
+
+With `--wake <mac>` (the projector's Wi-Fi MAC), a press while the projector is unreachable sends
+a Wake-on-LAN packet. This needs LG's "turn on via Wi-Fi" setting (`wolwowlOnOff`) on. The bridge
+then retries every 2 seconds, so keys work as soon as the projector has booted, about 25 seconds
+after the press.
 
 SSAP can only send complete key presses, so it can't hold OK down. With `--ssh <host>`, a root
 SSH alias for the projector, the bridge keeps one SSH session open to it, running a small Python
@@ -309,6 +319,8 @@ ssh <mac> 'cd ~/data/config/siri-bridge && swiftc -O siri-bridge.swift -o siri-b
     <string><projector-ip></string>
     <string>--ssh</string>
     <string><projector-ssh-alias></string>
+    <string>--wake</string>
+    <string><projector-wifi-mac></string>
   </array>
   <key>RunAtLoad</key>
   <true/>
