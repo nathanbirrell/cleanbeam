@@ -212,8 +212,10 @@ into key presses that it sends to the projector over Wi-Fi.
 The projector can't take the remote directly:
 - **Infrared:** the projector's micom chip decodes IR itself and passes on only LG remote codes,
   so Apple IR remotes never reach webOS, even with root.
-- **Bluetooth:** LG's Bluetooth stack won't pair the remote properly, and the remote's button
-  and touch data is Apple-specific.
+- **Bluetooth:** the projector can pair the remote, but no data ever arrives. The remote speaks an
+  Apple-only protocol that bundles buttons, touch and sensors into one channel and needs an
+  undocumented start-up exchange. LG's Bluetooth stack doesn't pass through the requests that
+  exchange would need.
 
 macOS supports the remote natively. Its buttons arrive as an HID report (`0xFA`, one bit per
 button) and its touchpad as a multitouch device, read through the private `MultitouchSupport`
@@ -223,12 +225,24 @@ framework. The bridge sends keys through webOS's own network remote API (SSAP, `
 | Remote | Projector |
 | :----- | :-------- |
 | Swipe up / down / left / right | Arrow keys (keep your finger down after a swipe to repeat) |
+| Quick tap near an edge | That arrow, like Apple TV: skips back or forward in a player |
 | Touchpad click | OK |
+| Hold touchpad click | Long press of OK: opens context menus in Plex and YouTube (needs `--ssh`) |
 | Menu | Back |
 | TV/Home | Home |
+| Hold TV/Home | Turn the projector off |
 | Play/Pause | Play / Pause (alternates) |
 | Vol+ / Vol− | Volume (hold to repeat) |
 | Siri | Settings menu |
+
+Taps in the middle of the touchpad, and taps that end in a click, do nothing. Holds take half a
+second; until then, Click and TV/Home wait for release before sending their short key.
+
+SSAP can only send complete key presses, so it can't hold OK down. With `--ssh <host>`, a root
+SSH alias for the projector, the bridge keeps one SSH session open to it, running a small Python
+loop that writes key-down and key-up events straight into the LG remote's input device
+(`/dev/input/event1`). Apps then see OK held down, exactly as with the LG remote. Without
+`--ssh`, holding the click sends a normal OK.
 
 ### Set up
 
@@ -253,8 +267,14 @@ The projector issues a client key on first pairing, which the bridge keeps in
 manifest, taken from [hobbyquaker/lgtv2](https://github.com/hobbyquaker/lgtv2) (MIT), and must
 sit next to the binary. `./siri-bridge --test HOME` pairs, sends one key and exits.
 
+4. For long-press OK, give the Mac root SSH access to the projector: create a key, add its
+   public half to `/home/root/.ssh/authorized_keys` on the projector, and add a `Host` alias for
+   it in `~/.ssh/config` on the Mac. Then run the bridge with `--ssh <alias>`.
+
 The Mac has to be within Bluetooth range of where you sit. The remote drops its connection when
-idle and reconnects when you press a button; the bridge picks it up again by itself.
+idle and reconnects when you press a button, with a new touchpad device each time. The bridge
+watches IOKit for new touchpads and picks the remote up again by itself. While the projector is
+off, the bridge retries its connections in the background, backing off to once a minute.
 
 Apple's driver also turns the remote's buttons into Mac media keys, so Play/Pause would open
 Music and the volume buttons would change the Mac's volume. Seizing the HID device doesn't stop
@@ -287,6 +307,8 @@ ssh <mac> 'cd ~/data/config/siri-bridge && swiftc -O siri-bridge.swift -o siri-b
     <string>/Users/<you>/data/config/siri-bridge/siri-bridge</string>
     <string>--host</string>
     <string><projector-ip></string>
+    <string>--ssh</string>
+    <string><projector-ssh-alias></string>
   </array>
   <key>RunAtLoad</key>
   <true/>
