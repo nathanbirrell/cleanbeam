@@ -254,9 +254,60 @@ manifest, taken from [hobbyquaker/lgtv2](https://github.com/hobbyquaker/lgtv2) (
 sit next to the binary. `./siri-bridge --test HOME` pairs, sends one key and exits.
 
 The Mac has to be within Bluetooth range of where you sit. The remote drops its connection when
-idle and reconnects when you press a button; the bridge picks it up again by itself. macOS still
-reacts to Play/Pause and volume as media keys, so on a dedicated Mac stop those from opening
-Music.
+idle and reconnects when you press a button; the bridge picks it up again by itself.
+
+Apple's driver also turns the remote's buttons into Mac media keys, so Play/Pause would open
+Music and the volume buttons would change the Mac's volume. Seizing the HID device doesn't stop
+that, so each time the remote connects the bridge runs `hidutil` to remap those keys to F24,
+which macOS ignores. The remap applies to the remote only. The Mac's own keyboard is unaffected.
+
+### Run it on an always-on Mac
+
+Copy the folder to the Mac, build it there, and install a launch agent so it starts at login
+and restarts if it exits. The Mac has to stay logged in, because the remote's touchpad is only
+available in a user session. A projector client key can be copied from another Mac to skip the
+connection prompt.
+
+```sh
+scp tools/siri-remote/{siri-bridge.swift,pairing.json} <mac>:data/config/siri-bridge/
+ssh <mac> 'cd ~/data/config/siri-bridge && swiftc -O siri-bridge.swift -o siri-bridge'
+```
+
+`~/Library/LaunchAgents/local.siri-bridge.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>local.siri-bridge</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/<you>/data/config/siri-bridge/siri-bridge</string>
+    <string>--host</string>
+    <string><projector-ip></string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>StandardOutPath</key>
+  <string>/Users/<you>/data/config/siri-bridge/siri-bridge.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/<you>/data/config/siri-bridge/siri-bridge.log</string>
+</dict>
+</plist>
+```
+
+```sh
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.siri-bridge.plist
+launchctl kickstart -k gui/$(id -u)/local.siri-bridge    # restart after rebuilding
+```
+
+The log lists each key sent to the projector, and when the remote connects or drops.
 
 `tools/siri-remote/` also has the probes used to work out the remote's protocol: `hidmon.swift`
 (HID reports), `mtmon.swift` (touchpad frames) and `featureget.swift` (read-only feature reports).

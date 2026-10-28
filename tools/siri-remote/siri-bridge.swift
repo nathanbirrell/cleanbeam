@@ -243,6 +243,35 @@ func buttonsChanged(_ state: UInt8) {
     heldButtons = state
 }
 
+// Apple's driver also turns these buttons into Mac media keys (volume, Play/Pause opening Music),
+// and seizing the HID device doesn't stop that. Remap them to F24, which macOS ignores, on the
+// remote's own services only. The bridge reads raw reports, so it still sees every press. The
+// mapping is lost whenever the remote reconnects, so it's reapplied on each connect.
+let blankedUsages: [(page: UInt64, usage: UInt64)] = [
+    (0x0C, 0xE9), (0x0C, 0xEA), (0x0C, 0xCD), (0x0C, 0x04), // vol+, vol−, play/pause, Siri
+    (0x0C, 0x60), (0x0C, 0x30), (0x0C, 0x80), (0x01, 0x86), // TV, power, click, Menu
+]
+
+func blankMacMediaKeys() {
+    let f24: UInt64 = 0x07 << 32 | 0x73
+    let mapping = blankedUsages.map {
+        String(format: "{\"HIDKeyboardModifierMappingSrc\":0x%llX,\"HIDKeyboardModifierMappingDst\":0x%llX}",
+               $0.page << 32 | $0.usage, f24)
+    }.joined(separator: ",")
+    let hidutil = Process()
+    hidutil.executableURL = URL(fileURLWithPath: "/usr/bin/hidutil")
+    hidutil.arguments = ["property", "--matching", "{\"VendorID\":0x4c,\"ProductID\":0x26d}",
+                         "--set", "{\"UserKeyMapping\":[\(mapping)]}"]
+    hidutil.standardOutput = FileHandle.nullDevice
+    do {
+        try hidutil.run()
+        hidutil.waitUntilExit()
+        if hidutil.terminationStatus != 0 { log("hidutil failed (\(hidutil.terminationStatus)): Mac media keys still active") }
+    } catch {
+        log("hidutil: \(error.localizedDescription)")
+    }
+}
+
 var reportBuffers: [UnsafeMutablePointer<UInt8>] = []
 let hid = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
 IOHIDManagerSetDeviceMatching(hid, [kIOHIDVendorIDKey: 0x004C, kIOHIDProductIDKey: 0x026D,
@@ -251,7 +280,10 @@ IOHIDManagerRegisterDeviceMatchingCallback(hid, { _, _, _, device in
     // Seize so macOS doesn't also act on Play/Pause and volume.
     let seized = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice)) == kIOReturnSuccess
     if !seized { _ = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone)) }
-    log("remote buttons connected\(seized ? " (seized)" : " (not seized: macOS will also see presses)")")
+    log("remote buttons connected\(seized ? " (seized)" : "")")
+    // The remote's key services can register a moment after its HID device, so apply twice.
+    blankMacMediaKeys()
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { blankMacMediaKeys() }
     let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 64)
     reportBuffers.append(buffer)
     IOHIDDeviceRegisterInputReportCallback(device, buffer, 64, { _, _, _, _, reportID, report, length in
