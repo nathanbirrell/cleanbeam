@@ -1,7 +1,7 @@
 // siri-bridge: drive the LG CineBeam (webOS) with a 2015 Siri Remote paired to this Mac.
 //
 //   swiftc -O siri-bridge.swift -o siri-bridge
-//   ./siri-bridge [--host 192.168.1.249] [--ssh cleanbeam] [--pairing pairing.json] [--test BUTTON]
+//   ./siri-bridge --host <projector-ip> [--ssh <ssh-alias>] [--pairing pairing.json] [--test BUTTON]
 //
 // Buttons come from the remote's HID button interface (report 0xFA, one bit per button).
 // Swipes and taps come from its touchpad through the private MultitouchSupport framework. Keys
@@ -19,7 +19,7 @@ import IOKit.hid
 let stampFormatter: DateFormatter = { let f = DateFormatter(); f.dateFormat = "HH:mm:ss.SSS"; return f }()
 func log(_ s: String) { print("\(stampFormatter.string(from: Date())) \(s)"); fflush(stdout) }
 
-var host = "192.168.1.249"
+var host = ""
 var pairingPath = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
     .deletingLastPathComponent().appendingPathComponent("pairing.json").path
 var testButton: String?
@@ -33,6 +33,10 @@ while let a = argv.next() {
     case "--test": testButton = argv.next()
     default: log("unknown argument \(a)"); exit(2)
     }
+}
+if host.isEmpty {
+    log("usage: siri-bridge --host <projector-ip> [--ssh <ssh-alias>] [--pairing pairing.json] [--test BUTTON]")
+    exit(2)
 }
 
 // MARK: - Projector (SSAP)
