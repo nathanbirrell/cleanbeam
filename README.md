@@ -1,7 +1,14 @@
 # cleanbeam
 
-Debloat and optimise an **LG CineBeam Q (HU710PB-GL)** running webOS 6.3.1 for use as a dedicated
-streaming projector. No antenna, no smart-TV cruft — just Plex/streaming apps and clean HDMI.
+A collection of tools and hacks for the **LG CineBeam Q (HU710PB-GL)** projector running webOS
+6.3.1, for debloating it and improving the everyday experience. The goal is a dedicated streaming
+projector: Plex and streaming apps, clean HDMI, no antenna and no smart-TV cruft.
+
+- **Debloat and boot tweaks** (Steps 1–5): root, boot hooks that stop telemetry and ads, and Luma
+  as the home screen.
+- **Aerial screen saver** (Step 6): Apple TV aerials instead of LG's screen saver.
+- **Siri Remote** ([below](#siri-remote-via-a-mac)): control the projector with an Apple Siri
+  Remote, through an always-on Mac.
 
 Root is required. Everything here assumes [Homebrew Channel (HBC)](https://github.com/webosbrew/webos-homebrew-channel)
 is installed and SSH is enabled.
@@ -196,6 +203,64 @@ LPID=$!; sleep 2; kill $LPID 2>/dev/null; wait $LPID 2>/dev/null
 
 Any remote button closes it.
 
+## Siri Remote via a Mac
+
+`tools/siri-remote/siri-bridge` lets a 2015 Siri Remote (the first one with a touchpad) control
+the projector. The remote pairs with a Mac, and the bridge on that Mac turns presses and swipes
+into key presses that it sends to the projector over Wi-Fi.
+
+The projector can't take the remote directly:
+- **Infrared:** the projector's micom chip decodes IR itself and passes on only LG remote codes,
+  so Apple IR remotes never reach webOS, even with root.
+- **Bluetooth:** LG's Bluetooth stack won't pair the remote properly, and the remote's button
+  and touch data is Apple-specific.
+
+macOS supports the remote natively. Its buttons arrive as an HID report (`0xFA`, one bit per
+button) and its touchpad as a multitouch device, read through the private `MultitouchSupport`
+framework. The bridge sends keys through webOS's own network remote API (SSAP, `wss://` on port
+3001), so nothing changes on the projector.
+
+| Remote | Projector |
+| :----- | :-------- |
+| Swipe up / down / left / right | Arrow keys (keep your finger down after a swipe to repeat) |
+| Touchpad click | OK |
+| Menu | Back |
+| TV/Home | Home |
+| Play/Pause | Play / Pause (alternates) |
+| Vol+ / Vol− | Volume (hold to repeat) |
+| Siri | Settings menu |
+
+### Set up
+
+1. Unpair the remote from anything else, then pair it with the Mac: hold **Menu + Volume Up** for
+   5 seconds near the Mac, then connect it in **System Settings → Bluetooth**. It shows up as a
+   serial number such as `C08Z39MBJ90M`.
+2. Build the bridge on the Mac:
+
+   ```sh
+   cd tools/siri-remote && swiftc -O siri-bridge.swift -o siri-bridge
+   ```
+
+3. Run it, then accept the connection prompt on the projector with the LG remote. You only
+   need to do this once per Mac:
+
+   ```sh
+   ./siri-bridge --host <projector-ip>
+   ```
+
+The projector issues a client key on first pairing, which the bridge keeps in
+`~/Library/Application Support/cleanbeam-remote/client-key`. `pairing.json` is LG's remote-app
+manifest, taken from [hobbyquaker/lgtv2](https://github.com/hobbyquaker/lgtv2) (MIT), and must
+sit next to the binary. `./siri-bridge --test HOME` pairs, sends one key and exits.
+
+The Mac has to be within Bluetooth range of where you sit. The remote drops its connection when
+idle and reconnects when you press a button; the bridge picks it up again by itself. macOS still
+reacts to Play/Pause and volume as media keys, so on a dedicated Mac stop those from opening
+Music.
+
+`tools/siri-remote/` also has the probes used to work out the remote's protocol: `hidmon.swift`
+(HID reports), `mtmon.swift` (touchpad frames) and `featureget.swift` (read-only feature reports).
+
 ## Results
 
 Cold boot, measured from kernel start in `/var/log/bootd.log` (about 3s less than a
@@ -252,4 +317,5 @@ baseline.md      Pre/post measurements and change log
 RESEARCH.md      Root investigation, device facts, community reports
 reference/       Upstream project clones (gitignored — re-fetch with scripts/fetch-reference.sh)
 tools/slopbro/   SlopBro exploit tool (gitignored)
+tools/siri-remote/  Siri Remote bridge for a Mac, plus protocol probes
 ```
