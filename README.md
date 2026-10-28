@@ -16,7 +16,7 @@ is installed and SSH is enabled.
 > **Disclaimer:** This documents what worked on my own device. Rooting modifies your
 > projector at your own risk — it may void your warranty, breach LG's terms of service,
 > or brick the device. Nothing here is affiliated with or endorsed by LG. Use it only on
-> hardware you own. No warranty; see [`LICENSE`](LICENSE).
+> hardware you own. 
 
 ## Device
 
@@ -226,6 +226,8 @@ LPID=$!; sleep 2; kill $LPID 2>/dev/null; wait $LPID 2>/dev/null
 Any remote button closes it.
 
 ## Siri Remote via a Mac
+
+I don't like the LG stock remote, so decided to try this. 
 
 `tools/siri-remote/siri-bridge` lets a 2015 Siri Remote (the first one with a touchpad) control
 the projector. The remote pairs with a Mac, and the bridge on that Mac turns presses and swipes
