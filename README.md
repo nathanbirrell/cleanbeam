@@ -1,4 +1,4 @@
-# cleanbeam
+# 📽️ cleanbeam
 
 A collection of tools and hacks for the **LG CineBeam Q (HU710PB-GL)** projector running webOS
 6.3.1, for debloating it and improving the everyday experience. The goal is a dedicated streaming
@@ -8,7 +8,7 @@ projector: Plex and streaming apps, clean HDMI, no antenna and no smart-TV cruft
   as the home screen.
 - **Aerial screen saver** (Step 6): Apple TV aerials instead of LG's screen saver.
 - **Siri Remote** ([below](#siri-remote-via-a-mac)): control the projector with an Apple Siri
-  Remote, through an always-on Mac.
+  Remote, through an always-on Mac server.
 
 Root is required. Everything here assumes [Homebrew Channel (HBC)](https://github.com/webosbrew/webos-homebrew-channel)
 is installed and SSH is enabled.
