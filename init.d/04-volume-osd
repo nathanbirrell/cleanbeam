@@ -25,6 +25,9 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
   systemctl -q is-active surface-manager-daemon.service && break
   sleep 1
 done
+# WebAppMgr (YouTube and the other web apps) keeps its connection to the old compositor and
+# aborts in its GPU thread the next time a web app draws, so restart it too while none is open.
+systemctl restart webapp-mgr.service
 sleep 3 # let the compositor load its views before Luma is launched
-echo "04-volume-osd: compositor restarted $(cut -d' ' -f1 /proc/uptime)" >> $LOG
+echo "04-volume-osd: compositor and WebAppMgr restarted $(cut -d' ' -f1 /proc/uptime)" >> $LOG
 exit 0

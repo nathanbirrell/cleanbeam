@@ -82,7 +82,9 @@ scp overlays/volume/StarfishVolume.qml root@<ip>:/var/lib/cleanbeam/volume/
 The compositor reads that file once when it starts, before HBC runs the hooks, so the hook
 bind-mounts the replacement and restarts the compositor. A restart brings Home to the front, so
 the hook runs before `05-luma-home-first`, while nothing is open yet, and waits for the
-compositor to come back. That delays Luma at boot by a few seconds (not yet measured). If a
+compositor to come back. It then restarts WebAppMgr as well: otherwise WebAppMgr keeps its
+connection to the old compositor and aborts the next time a web app draws, crashing YouTube.
+That delays Luma at boot by a few seconds (not yet measured). If a
 firmware update changes LG's file so it no longer has the functions the replacement implements,
 the hook leaves it alone and logs why to `/tmp/cleanbeam-hooks.log`. Without the QML on the
 projector the hook does nothing.
