@@ -239,7 +239,13 @@ framework. The bridge sends keys through webOS's own network remote API (SSAP, `
 A swipe sends its first arrow after travelling 30% of the pad, which also locks it to that axis.
 Each further 20% sends another arrow, and moving back sends the opposite one, so one long drag
 walks through a grid or skips repeatedly in a player. A fast flick adds up to 5 more arrows after
-you lift, and resting your finger after a swipe repeats the last arrow. Taps in the middle of the
+you lift, and resting your finger after a swipe repeats the last arrow.
+
+Big swipes (3+ arrows, or a flick) in quick succession the same way speed up, like scroll
+acceleration: each arrow counts ×2, ×3, ×5, then ×8, for scrubbing through a 3-hour movie or mix.
+A pause of over a second, a small swipe or a change of direction drops back to ×1. The extra
+presses go out 30 ms apart, but never more than a quarter of a second behind, so scrolling stops
+when you stop. Any button press or tap drops whatever is still queued. Taps in the middle of the
 touchpad, and taps that end in a click, do nothing. Holds take half a second; until then, Click
 and TV/Home wait for release before sending their short key.
 

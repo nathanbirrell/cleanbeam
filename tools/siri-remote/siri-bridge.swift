@@ -432,6 +432,8 @@ func buttonsChanged(_ state: UInt8) {
     for m in buttonMappings {
         let isDown = state & m.bit != 0, wasDown = heldButtons & m.bit != 0
         if isDown && !wasDown {
+            cancelBursts()
+            streakLength = 0
             if m.bit == 0x80 && strokeStart != nil { clickedDuringStroke = true }
             if m.longPress != nil {
                 longPressTimers[m.bit] = Timer.scheduledTimer(withTimeInterval: longPressDelay, repeats: false) { _ in
@@ -560,15 +562,53 @@ var restingSince: Date?
 var lastFired = Date.distantPast
 var repeating = false
 
+// Streaks: big swipes (bigSwipeSteps or more steps, or a flick) in quick succession the same way
+// scale every arrow in that direction, so a run of swipes scrubs quickly through a 3-hour movie.
+// A pause longer than streakGap, a small swipe or a change of direction resets it.
+let streakGap = 1.0, bigSwipeSteps = 3
+let streakMultipliers = [1, 2, 3, 5, 8]
+var streakDirection: String?
+var streakLength = 0                 // big swipes so far in the current streak
+var streakLastEnded = Date.distantPast
+var strokeFirstDirection: String?    // direction of this stroke's first arrow
+var strokeMultiplier = 1             // presses per arrow in that direction, for this stroke
+var burstClock = Date.distantPast
+var burstGeneration = 0
+let burstSpacing = 0.03, maxBurstBacklog = 0.25
+
 func arrow(horizontal: Bool, positive: Bool) -> String {
     horizontal ? (positive ? "RIGHT" : "LEFT") : (positive ? "UP" : "DOWN")
 }
 
-func fire(_ direction: String) {
+// Sends count presses burstSpacing apart, queued behind any burst still going out so the order
+// holds. Presses that would land more than maxBurstBacklog behind are dropped, so scrolling stops
+// as soon as the swiping does instead of playing out a backlog.
+func send(_ key: String, count: Int) {
+    let generation = burstGeneration
+    for _ in 0..<count {
+        let at = max(Date(), burstClock.addingTimeInterval(burstSpacing))
+        let delay = at.timeIntervalSinceNow
+        guard delay <= maxBurstBacklog else { return }
+        burstClock = at
+        if delay <= 0 { projector.button(key) } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                if generation == burstGeneration { projector.button(key) }
+            }
+        }
+    }
+}
+
+// Drops any queued presses: on a button press, a tap or a change of swipe direction.
+func cancelBursts() {
+    burstGeneration += 1
+    burstClock = .distantPast
+}
+
+func fire(_ direction: String, scaled: Bool = true) {
     strokeDirection = direction
     strokeSteps += 1
     lastFired = Date()
-    projector.button(direction)
+    send(direction, count: scaled && direction == strokeFirstDirection ? strokeMultiplier : 1)
 }
 
 // Signed speed along one axis over the last ~60 ms, using the touchpad's frame timestamps:
@@ -587,6 +627,8 @@ func strokeEnded() {
         strokeHorizontal = nil
         strokeDirection = nil
         strokeSteps = 0
+        strokeFirstDirection = nil
+        strokeMultiplier = 1
         recentPositions.removeAll()
         restingSince = nil
         repeating = false
@@ -598,17 +640,24 @@ func strokeEnded() {
         if abs(speed) >= flickSpeed {
             extra = min(Int((abs(speed) - flickSpeed) / flickStepSpeed) + 1, maxFlickSteps)
             let direction = arrow(horizontal: horizontal, positive: speed > 0)
-            for i in 1...extra {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.07 * Double(i)) { projector.button(direction) }
-            }
+            send(direction, count: extra * (direction == strokeFirstDirection ? strokeMultiplier : 1))
         }
-        log(String(format: "swipe: %d step(s), lift speed %.1f, +%d flick", strokeSteps, abs(speed), extra))
+        if strokeSteps >= bigSwipeSteps || extra > 0 {
+            streakLength += 1
+            streakLastEnded = Date()
+        } else {
+            streakLength = 0
+        }
+        log(String(format: "swipe: %d step(s) x%d, lift speed %.1f, +%d flick, streak %d",
+                   strokeSteps, strokeMultiplier, abs(speed), extra, streakLength))
         return
     }
     guard let start = strokeStart, !clickedDuringStroke, heldButtons & 0x80 == 0,
           strokeTravel <= tapMaxTravel, Date().timeIntervalSince(strokeStartTime) <= tapMaxDuration else { return }
     let dx = start.x - 0.5, dy = start.y - 0.5
     guard max(abs(dx), abs(dy)) >= tapEdgeZone else { return }
+    cancelBursts()
+    streakLength = 0
     projector.button(arrow(horizontal: abs(dx) > abs(dy), positive: abs(dx) > abs(dy) ? dx > 0 : dy > 0))
 }
 
@@ -632,9 +681,17 @@ func touchFrame(_ position: MTPoint?, at frameTime: Double) {
         let dx = position.x - start.x, dy = position.y - start.y
         guard max(abs(dx), abs(dy)) >= swipeDistance else { return }
         let h = abs(dx) > abs(dy)
+        let direction = arrow(horizontal: h, positive: (h ? dx : dy) > 0)
+        if direction != streakDirection { cancelBursts() }
+        if direction != streakDirection || Date().timeIntervalSince(streakLastEnded) > streakGap {
+            streakLength = 0
+            streakDirection = direction
+        }
         strokeHorizontal = h
         strokeAnchor = h ? position.x : position.y
-        fire(arrow(horizontal: h, positive: (h ? dx : dy) > 0))
+        strokeFirstDirection = direction
+        strokeMultiplier = streakMultipliers[min(streakLength, streakMultipliers.count - 1)]
+        fire(direction)
         return
     }
 
@@ -659,7 +716,7 @@ func touchFrame(_ position: MTPoint?, at frameTime: Double) {
     let due = repeating ? now.timeIntervalSince(lastFired) >= repeatInterval : now.timeIntervalSince(rest) >= holdBeforeRepeat
     if due {
         repeating = true
-        fire(direction)
+        fire(direction, scaled: false)
     }
 }
 
