@@ -1,0 +1,30 @@
+#!/bin/sh
+# Swap LG's volume bar for the Apple TV-style one in overlays/volume/StarfishVolume.qml.
+# The compositor reads that QML once at startup, which is before HBC runs the hooks, so after
+# the bind mount it has to be restarted. A restart brings Home to the front, so this runs before
+# 05-luma-home-first, while nothing is open yet, and waits for the compositor to come back.
+SRC=/var/lib/cleanbeam/volume/StarfishVolume.qml
+DST=/usr/lib/qml/WebOSCompositor/views/volume/StarfishVolume.qml
+LOG=/tmp/cleanbeam-hooks.log
+[ -f "$SRC" ] || exit 0
+grep -q " $DST " /proc/mounts && exit 0
+
+echo "04-volume-osd: start $(cut -d' ' -f1 /proc/uptime)" >> $LOG
+# The replacement implements the interface StarfishVolumeView.qml uses on webOS 6. After a
+# firmware change LG's file may differ, and a mismatch would stop the compositor drawing at all.
+for name in restartClosingTimer volumeBarMiddleLength volumeDirectionString; do
+  if ! grep -q "$name" "$DST"; then
+    echo "04-volume-osd: LG's StarfishVolume.qml has no $name, leaving it alone" >> $LOG
+    exit 0
+  fi
+done
+
+mount --bind "$SRC" "$DST"
+systemctl restart surface-manager-daemon.service
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  systemctl -q is-active surface-manager-daemon.service && break
+  sleep 1
+done
+sleep 3 # let the compositor load its views before Luma is launched
+echo "04-volume-osd: compositor restarted $(cut -d' ' -f1 /proc/uptime)" >> $LOG
+exit 0

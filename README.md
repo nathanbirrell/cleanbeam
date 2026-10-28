@@ -67,6 +67,26 @@ HBC starts the hooks about 32s into boot and runs them one at a time. `30-debloa
 `50-preload` move themselves to the background so they don't hold up the rest; their
 start and finish times go to `/tmp/cleanbeam-hooks.log`.
 
+#### `04-volume-osd`
+
+Replaces LG's volume bar with an Apple TV-style one: a dark rounded pill at the right edge, with
+a white level bar that fills from the bottom and a speaker icon below it. Muted shows the speaker
+crossed out. The QML is in `overlays/volume/StarfishVolume.qml`, written from scratch against the
+interface LG's compositor expects. Copy it to the projector once:
+
+```sh
+ssh root@<ip> "mkdir -p /var/lib/cleanbeam/volume"
+scp overlays/volume/StarfishVolume.qml root@<ip>:/var/lib/cleanbeam/volume/
+```
+
+The compositor reads that file once when it starts, before HBC runs the hooks, so the hook
+bind-mounts the replacement and restarts the compositor. A restart brings Home to the front, so
+the hook runs before `05-luma-home-first`, while nothing is open yet, and waits for the
+compositor to come back. That delays Luma at boot by a few seconds (not yet measured). If a
+firmware update changes LG's file so it no longer has the functions the replacement implements,
+the hook leaves it alone and logs why to `/tmp/cleanbeam-hooks.log`. Without the QML on the
+projector the hook does nothing.
+
 #### `05-luma-home-first`
 
 Applies Luma's bind-mount first thing, then launches Home so Luma is in front at ~40s
@@ -403,6 +423,7 @@ setting in PLXNative to avoid direct play.
 
 ```
 init.d/          Boot hooks — deploy to /var/lib/webosbrew/init.d/
+overlays/        Replacement UI files mounted by the hooks (Apple TV-style volume bar)
 scripts/         Utility scripts (probe-ssap.py, fetch-reference.sh, install-aerial.sh)
 baseline.md      Pre/post measurements and change log
 RESEARCH.md      Root investigation, device facts, community reports
