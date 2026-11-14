@@ -49,6 +49,29 @@ ssh root@<ip> "touch /var/luna/preferences/webosbrew_block_updates"
 
 **Do not update the firmware.** Updates patch the root exploit.
 
+The flag stops LG from **offering** an update. A package that is already sitting in
+`/mnt/lg/cmn_data/swupdate` is a different problem: webOS applies it at the next reboot,
+flag or no flag. `40-hosts` blocks the download; `41-freeze-swupdate` and
+`42-freeze-late` mount a tmpfs over that partition and replay the mount every minute, so
+nothing can be staged; a package already there is moved to
+`/var/lib/webosbrew/cleanbeam-swupdate-quarantine`. `43-update-services` runtime-masks
+every `update`/`swupdate` unit the running firmware ships, rather than trusting the one
+name in `30-debloat`'s list.
+
+Verify after a reboot:
+
+```sh
+ssh root@<ip> "grep ' /mnt/lg/cmn_data/swupdate ' /proc/mounts
+                ls -A /mnt/lg/cmn_data/swupdate | wc -l
+                systemctl is-enabled update.service
+                systemctl is-active cleanbeam-freeze.timer"
+```
+
+Expected: a `tmpfs … /mnt/lg/cmn_data/swupdate …` line, `0`, `masked-runtime`, `active`.
+All of these hooks are volatile — applied at every boot by HBC, nothing written to the
+read-only rootfs — so a broken HBC means they silently disappear, as with every hook
+here. Undo: delete the hook files and reboot.
+
 ## Step 3 — Deploy the init.d hooks
 
 HBC runs every executable in `/var/lib/webosbrew/init.d/` on each boot via busybox `run-parts`.
@@ -137,6 +160,35 @@ It also blocks SBS On Demand's ads. The app asks Google DAI (`dai.google.com`) f
 with the ads built in, and when that request fails it plays SBS's plain, ad-free HLS stream
 instead. `securepubads.g.doubleclick.net` is blocked too, which removes its pause-screen ads.
 The block applies to every app, so other apps that use Google DAI are affected as well.
+
+#### `41-freeze-swupdate`
+
+Mounts a 1 MB tmpfs over `/mnt/lg/cmn_data/swupdate`, the ext4 partition
+(`/dev/mmcblk0p58`) where webOS stages an EPK and its XML metadata before applying it at
+reboot. Whatever a downloader writes there stays in RAM and is gone after a reboot, so no
+package can be applied. A package already staged is moved to
+`/var/lib/webosbrew/cleanbeam-swupdate-quarantine` through the parent directory, 20 MB
+per file. A tmpfs rather than a bind mount from `/var`: `/var` is on the same partition as
+the staging folder, so a bind would be indistinguishable from the real mount in
+`/proc/mounts`, whereas the tmpfs is unambiguous. Logs to `/tmp/cleanbeam-hooks.log`.
+
+#### `42-freeze-late`
+
+The firmware mounts the staging partition on demand, and if it does so after the hooks
+have run (~32s) the mount covers the tmpfs from `41`. This hook installs a volatile
+systemd timer in `/run/systemd/system/` that replays `41` every 60s: `41` exits
+immediately when the freeze is already in place, otherwise puts it back. Self-healing,
+about a second of boot time. Undo: delete the hook and reboot; the units only exist in
+`/run`.
+
+#### `43-update-services`
+
+Stops and runtime-masks every unit whose name ends in `update.service` or
+`swupdate.service` — an explicit list plus whatever the running firmware actually ships.
+`30-debloat` masks `update.service` by name; this keeps the door shut if a different
+firmware renames it. `systemd-*` units are excluded: they are systemd's own maintenance
+jobs, not LG's. Units already masked are left alone. The unit inventory it saw goes to
+`/tmp/cleanbeam-hooks.log`.
 
 #### `50-preload`
 

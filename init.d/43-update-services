@@ -1,0 +1,53 @@
+#!/bin/sh
+# Neutralise the services that check for and install firmware updates.
+#
+# Unit names are not guaranteed from one firmware to the next, so the list is an
+# explicit set plus whatever the running firmware actually ships, deduplicated.
+# systemd's own *-update.service maintenance jobs are excluded: they rebuild
+# hwdb and the journal catalog, they have nothing to do with LG updates.
+#
+# --no-block keeps the boot from stalling on a unit that hangs.
+# Volatile (mask --runtime): reapplied at every boot, nothing written to the
+# read-only rootfs. The swupdate binary is not touched; 41-freeze-swupdate
+# freezes the staging folder.
+#
+# Undo: delete this hook and reboot.
+
+LOG=/tmp/cleanbeam-hooks.log
+EXPLICIT="update.service swupdate.service com.webos.service.update.service softwareupdate.service"
+
+echo "43-update-services: start $(cut -d' ' -f1 /proc/uptime)" >> "$LOG"
+
+if ! command -v systemctl >/dev/null 2>&1; then
+  echo "43-update-services: systemctl not found, skipping" >> "$LOG"
+  exit 0
+fi
+
+DERIVED="$(systemctl list-unit-files --type=service --no-legend 2>/dev/null \
+  | awk '{print $1}' | grep -Ei '(update|swupdate)\.service$' | grep -v '^systemd-' || true)"
+
+UNITS="$( { for u in $EXPLICIT; do echo "$u"; done; echo "$DERIVED"; } | awk 'NF' | sort -u)"
+
+systemctl list-unit-files --no-legend 2>/dev/null | grep -Ei 'update|swup' >> "$LOG" 2>&1 || true
+
+for u in $UNITS; do
+  if [ ! -e "/lib/systemd/system/$u" ] \
+  && [ ! -e "/usr/lib/systemd/system/$u" ] \
+  && [ ! -e "/etc/systemd/system/$u" ] \
+  && [ ! -e "/run/systemd/system/$u" ]; then
+    echo "43-update-services: $u absent" >> "$LOG"
+    continue
+  fi
+  case "$(systemctl is-enabled "$u" 2>/dev/null)" in
+    masked|masked-runtime)
+      echo "43-update-services: $u already masked" >> "$LOG"
+      continue
+      ;;
+  esac
+  systemctl -q --no-block stop "$u" 2>> "$LOG"
+  if systemctl -q mask --runtime "$u" 2>> "$LOG"; then
+    echo "43-update-services: $u stopped, masked (runtime)" >> "$LOG"
+  else
+    echo "43-update-services: FAILED to mask $u" >> "$LOG"
+  fi
+done
