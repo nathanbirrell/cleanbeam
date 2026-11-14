@@ -1,0 +1,78 @@
+#!/bin/sh
+# Freeze the firmware update staging partition.
+#
+# /mnt/lg/cmn_data/swupdate is the ext4 partition (/dev/mmcblk0p58) where webOS
+# stages an EPK plus its XML metadata before applying it at reboot. Mounting a
+# tmpfs over it means a package written there lives in RAM and is gone after a
+# reboot, so nothing can be applied. The HBC flag and 40-hosts stop LG from
+# *offering* an update; this stops one that is already downloaded.
+#
+# A tmpfs rather than a bind mount from /var: /var is on the same partition as
+# the staging folder, so a bind would be indistinguishable from the real mount
+# in /proc/mounts. The tmpfs is unambiguous.
+#
+# Boot order: HBC runs hooks at ~32s, but the firmware mounts this partition on
+# demand and can mount it after us, covering the tmpfs. 42-freeze-late replays
+# this hook every 60s to put it back.
+#
+# A package already staged is moved to
+# /var/lib/webosbrew/cleanbeam-swupdate-quarantine (through the parent
+# directory), 20 MB per file at most.
+#
+# Volatile, idempotent. Undo: delete this hook, then reboot.
+
+LOG=/tmp/cleanbeam-hooks.log
+TGT_RAW=/mnt/lg/cmn_data/swupdate
+QRT=/var/lib/webosbrew/cleanbeam-swupdate-quarantine
+MAX_QUARANTINE=20000000
+
+echo "41-freeze-swupdate: start $(cut -d' ' -f1 /proc/uptime)" >> "$LOG"
+
+[ -e "$TGT_RAW" ] || { echo "41-freeze-swupdate: $TGT_RAW absent, nothing to freeze" >> "$LOG"; exit 0; }
+TGT="$(readlink -f "$TGT_RAW" 2>/dev/null)" || TGT="$TGT_RAW"
+[ -n "$TGT" ] || TGT="$TGT_RAW"
+
+# Already frozen by us? A tmpfs, or a stacked mount with nothing in it.
+if awk -v t="$TGT" '$2 == t && $3 == "tmpfs" { f=1 } END { exit !f }' /proc/mounts; then
+  echo "41-freeze-swupdate: already frozen (tmpfs)" >> "$LOG"
+  exit 0
+fi
+if [ "$(grep -c " $TGT " /proc/mounts)" -ge 2 ] && [ -z "$(ls -A "$TGT" 2>/dev/null)" ]; then
+  echo "41-freeze-swupdate: already frozen (stacked mount)" >> "$LOG"
+  exit 0
+fi
+
+mkdir -p "$QRT"
+
+# 1) freeze first: a tmpfs over the staging folder, immediate and identifiable.
+if mount -t tmpfs -o size=1m,nosuid,nodev tmpfs "$TGT" 2>> "$LOG"; then
+  echo "41-freeze-swupdate: tmpfs mounted on $TGT" >> "$LOG"
+else
+  echo "41-freeze-swupdate: tmpfs mount FAILED, staging not frozen" >> "$LOG"
+  exit 0
+fi
+
+# 2) move aside a package that was already staged, through the parent folder.
+PARENT="$(dirname "$TGT")"
+BASE="$(basename "$TGT")"
+HIDE=/tmp/cleanbeam-swu-parent
+mkdir -p "$HIDE"
+if mount --bind "$PARENT" "$HIDE" 2>> "$LOG"; then
+  for f in "$HIDE/$BASE"/* "$HIDE/$BASE"/.[!.]*; do
+    [ -f "$f" ] || continue
+    size="$(wc -c < "$f" 2>/dev/null || echo 0)"
+    name="$(basename "$f")"
+    if [ "${size:-0}" -gt "$MAX_QUARANTINE" ]; then
+      echo "41-freeze-swupdate: $name left in place ($size bytes, over ${MAX_QUARANTINE})" >> "$LOG"
+      continue
+    fi
+    if mv -f "$f" "$QRT/$name" 2>> "$LOG"; then
+      echo "41-freeze-swupdate: quarantined $name ($size bytes)" >> "$LOG"
+    else
+      echo "41-freeze-swupdate: FAILED to quarantine $name" >> "$LOG"
+    fi
+  done
+  umount "$HIDE" 2>> "$LOG" || echo "41-freeze-swupdate: FAILED to unmount $HIDE" >> "$LOG"
+else
+  echo "41-freeze-swupdate: parent not mountable, quarantine skipped" >> "$LOG"
+fi

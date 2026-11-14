@@ -1,0 +1,60 @@
+#!/bin/sh
+# Re-assert the staging freeze in the background.
+#
+# The firmware mounts /mnt/lg/cmn_data/swupdate on demand, not necessarily at
+# boot. HBC runs hooks at ~32s; if the partition is mounted after that, it
+# covers the tmpfs mounted by 41-freeze-swupdate and the staging folder becomes
+# writable again.
+#
+# This hook installs a volatile systemd timer in /run/systemd/system/ that
+# replays 41 every 60s. 41 exits immediately when the freeze is in place, so the
+# cost is a shell process that lives a few milliseconds a minute. A repeating
+# check rather than a single mount because the firmware can remount the
+# partition at any time.
+#
+# Volatile: the units live in /run and are recreated at every boot.
+# Undo: delete this hook and reboot (or `systemctl stop cleanbeam-freeze.timer`
+# for the current boot).
+
+LOG=/tmp/cleanbeam-hooks.log
+SVC=/run/systemd/system/cleanbeam-freeze.service
+TMR=/run/systemd/system/cleanbeam-freeze.timer
+WANTS=/run/systemd/system/multi-user.target.wants
+
+echo "42-freeze-late: start $(cut -d' ' -f1 /proc/uptime)" >> "$LOG"
+
+cat > "$SVC" <<'EOF'
+[Unit]
+Description=cleanbeam: re-assert the firmware update staging freeze
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /var/lib/webosbrew/init.d/41-freeze-swupdate
+EOF
+
+cat > "$TMR" <<'EOF'
+[Unit]
+Description=cleanbeam: periodic check of the firmware update staging freeze
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=60s
+AccuracySec=10s
+Unit=cleanbeam-freeze.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+mkdir -p "$WANTS"
+ln -sf ../cleanbeam-freeze.timer "$WANTS/cleanbeam-freeze.timer" 2>> "$LOG"
+systemctl daemon-reload 2>> "$LOG"
+
+# freeze now, then hand over to the timer
+sh /var/lib/webosbrew/init.d/41-freeze-swupdate 2>> "$LOG"
+if systemctl --no-block start cleanbeam-freeze.timer 2>> "$LOG"; then
+  echo "42-freeze-late: timer active (every 60s)" >> "$LOG"
+else
+  echo "42-freeze-late: FAILED to start the timer" >> "$LOG"
+fi
